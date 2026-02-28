@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advisor Targets - Budget Tracker</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: "Manrope", "Segoe UI", sans-serif;
+            background:
+                radial-gradient(circle at 10% -10%, rgba(37, 99, 235, 0.25) 0%, rgba(37, 99, 235, 0) 45%),
+                radial-gradient(circle at 100% 0%, rgba(15, 118, 110, 0.18) 0%, rgba(15, 118, 110, 0) 38%),
+                linear-gradient(180deg, #f3f7fc 0%, #eaf1f8 100%);
+        }
+        .settings-shell {
+            max-width: 1080px;
+            margin: 24px auto;
+            padding: 0 24px 24px;
+        }
+        .settings-hero {
+            align-items: center;
+            background: linear-gradient(130deg, #0b1b35 0%, #12306a 65%, #0f766e 100%);
+        }
+        .settings-hero .topbar-title p {
+            max-width: 520px;
+        }
+        .settings-card {
+            margin-top: 18px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(252, 255, 255, 0.9) 100%);
+            border: 1px solid #d0dded;
+            border-radius: 16px;
+            box-shadow: 0 14px 28px rgba(16, 33, 60, 0.08);
+            padding: 20px;
+        }
+        .settings-card h3 {
+            font-size: 1.08rem;
+            letter-spacing: 0.2px;
+        }
+        .section-subtitle {
+            margin-top: 4px;
+            color: #4e6784;
+            font-size: 0.87rem;
+        }
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 14px;
+            margin-top: 14px;
+        }
+        .settings-field {
+            display: grid;
+            gap: 6px;
+        }
+        .settings-field label {
+            color: #3c5470;
+            font-weight: 700;
+            font-size: 0.84rem;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .settings-field input {
+            border: 1px solid #c8d6e9;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+            border-radius: 10px;
+            padding: 10px 11px;
+            font-weight: 600;
+        }
+        .settings-actions {
+            margin-top: 16px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .settings-note {
+            color: #5c6f85;
+            font-size: 0.83rem;
+            margin-top: 12px;
+        }
+        .planner-summary {
+            margin-top: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .ideal-list {
+            margin-top: 12px;
+            display: grid;
+            gap: 8px;
+        }
+        .ideal-row {
+            display: grid;
+            grid-template-columns: 1.4fr 0.8fr 1fr;
+            gap: 10px;
+            align-items: center;
+            border: 1px solid #cfdaea;
+            border-radius: 10px;
+            padding: 10px 12px;
+            background: linear-gradient(180deg, #fbfdff 0%, #f2f7fc 100%);
+        }
+        .ideal-row strong:last-child {
+            text-align: right;
+            color: #0f2950;
+        }
+        .ideal-row span {
+            color: #4f6882;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+        .ideal-lifestyle {
+            border-color: #f3d7aa;
+            background: linear-gradient(180deg, #fff9ef 0%, #fff2df 100%);
+        }
+        .ideal-savings,
+        .ideal-investing {
+            border-color: #bde5d5;
+            background: linear-gradient(180deg, #effbf6 0%, #e7f8f1 100%);
+        }
+        .ideal-row strong {
+            font-size: 0.95rem;
+        }
+        .ideal-total {
+            color: #0f2950;
+            font-weight: 700;
+            font-size: 0.95rem;
+            background: #edf3fb;
+            border: 1px solid #cfdaea;
+            border-radius: 999px;
+            padding: 7px 12px;
+        }
+        .target-health {
+            font-size: 0.82rem;
+            font-weight: 700;
+            border-radius: 999px;
+            padding: 7px 12px;
+            border: 1px solid transparent;
+        }
+        .target-health.good {
+            color: #0a6241;
+            background: #e6f8f0;
+            border-color: #b8e6d2;
+        }
+        .target-health.warn {
+            color: #9a5f00;
+            background: #fff5e6;
+            border-color: #f2d4a1;
+        }
+        .target-health.bad {
+            color: #8f1d1d;
+            background: #ffecec;
+            border-color: #f0b9b9;
+        }
+        .settings-status {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #0a6a45;
+            min-height: 1.2rem;
+            font-weight: 700;
+        }
+        @media (max-width: 700px) {
+            .settings-shell {
+                padding: 0 14px 20px;
+            }
+            .ideal-row {
+                grid-template-columns: 1fr 0.65fr 0.9fr;
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="settings-shell">
+        <header class="topbar settings-hero">
+            <div class="topbar-title">
+                <h1>Financial Advisor Targets</h1>
+                <p>Customize the percentages used by your advisor summary.</p>
+            </div>
+            <a class="btn btn-primary settings-shortcut" href="index.html">Back to Tracker</a>
+        </header>
+
+        <section class="settings-card">
+            <h3>Allocation Targets (%)</h3>
+            <p class="section-subtitle">Set your preferred distribution per cut-off.</p>
+            <div class="settings-grid">
+                <div class="settings-field">
+                    <label for="targetEssentials">Essentials</label>
+                    <input type="number" id="targetEssentials" min="0" max="100" step="0.1">
+                </div>
+                <div class="settings-field">
+                    <label for="targetSavings">Savings</label>
+                    <input type="number" id="targetSavings" min="0" max="100" step="0.1">
+                </div>
+                <div class="settings-field">
+                    <label for="targetInvesting">Investing</label>
+                    <input type="number" id="targetInvesting" min="0" max="100" step="0.1">
+                </div>
+                <div class="settings-field">
+                    <label for="targetDebt">Debt</label>
+                    <input type="number" id="targetDebt" min="0" max="100" step="0.1">
+                </div>
+                <div class="settings-field">
+                    <label for="targetSinking">Sinking Fund</label>
+                    <input type="number" id="targetSinking" min="0" max="100" step="0.1">
+                </div>
+                <div class="settings-field">
+                    <label for="targetLifestyle">Lifestyle</label>
+                    <input type="number" id="targetLifestyle" min="0" max="100" step="0.1">
+                </div>
+            </div>
+            <p class="settings-note">Example: set Lifestyle to 15 if that reflects your current focus.</p>
+        </section>
+
+        <section class="settings-card">
+            <h3>Per Cut-off Planning</h3>
+            <p class="section-subtitle">Use your average net pay to estimate ideal amounts.</p>
+            <div class="settings-grid">
+                <div class="settings-field">
+                    <label for="averageNetPay">Average Net Pay per cut-off</label>
+                    <input type="number" id="averageNetPay" min="0" step="0.01" placeholder="0.00">
+                </div>
+            </div>
+            <p class="settings-note">This generates ideal category amounts based on your target percentages.</p>
+            <div class="planner-summary">
+                <div id="idealTotal" class="ideal-total"></div>
+                <div id="targetHealth" class="target-health"></div>
+            </div>
+            <div id="idealBreakdown" class="ideal-list"></div>
+        </section>
+
+        <section class="settings-card">
+            <h3>Alert Caps (%)</h3>
+            <p class="section-subtitle">Set thresholds for advisor warnings.</p>
+            <div class="settings-grid">
+                <div class="settings-field">
+                    <label for="capEssentials">Essentials Cap</label>
+                    <input type="number" id="capEssentials" min="0" max="100" step="0.1">
+                </div>
+                <div class="settings-field">
+                    <label for="capDebt">Debt Cap</label>
+                    <input type="number" id="capDebt" min="0" max="100" step="0.1">
+                </div>
+                <div class="settings-field">
+                    <label for="capLifestyle">Lifestyle Cap</label>
+                    <input type="number" id="capLifestyle" min="0" max="100" step="0.1">
+                </div>
+            </div>
+
+            <div class="settings-actions">
+                <button class="btn btn-success" id="saveBtn">Save</button>
+                <button class="btn btn-warning" id="resetBtn">Reset Defaults</button>
+                <a class="btn btn-secondary settings-shortcut" href="index.html">Done</a>
+            </div>
+            <div id="settingsStatus" class="settings-status"></div>
+        </section>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'budgetTrackerAdvisorConfig';
+        const DEFAULT_TARGETS = {
+            essentials: 50,
+            savings: 15,
+            investing: 10,
+            debt: 10,
+            sinking: 10,
+            lifestyle: 5
+        };
+        const DEFAULT_CAPS = {
+            lifestyle: 20,
+            debt: 20,
+            essentials: 60
+        };
+        const CURRENCY_SYMBOL = '\u20B1';
+
+        function clampPercent(value, fallback) {
+            const num = Number(value);
+            if (!Number.isFinite(num)) return fallback;
+            return Math.max(0, Math.min(100, num));
+        }
+
+        function toMoney(value, fallback = 0) {
+            const num = Number(value);
+            if (!Number.isFinite(num)) return fallback;
+            return Math.max(0, num);
+        }
+
+        function formatCurrency(value) {
+            return `${CURRENCY_SYMBOL}${(Number(value) || 0).toFixed(2)}`;
+        }
+
+        function getCurrentConfig() {
+            const config = {
+                targets: { ...DEFAULT_TARGETS },
+                caps: { ...DEFAULT_CAPS },
+                averageNetPayPerCutoff: 0
+            };
+
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) return config;
+
+                const parsed = JSON.parse(raw);
+                Object.keys(DEFAULT_TARGETS).forEach(key => {
+                    config.targets[key] = clampPercent(parsed?.targets?.[key], DEFAULT_TARGETS[key]);
+                });
+                Object.keys(DEFAULT_CAPS).forEach(key => {
+                    config.caps[key] = clampPercent(parsed?.caps?.[key], DEFAULT_CAPS[key]);
+                });
+                config.averageNetPayPerCutoff = toMoney(parsed?.averageNetPayPerCutoff, 0);
+            } catch (error) {
+                console.error('Failed to load advisor config:', error);
+            }
+
+            return config;
+        }
+
+        function setFieldValues(config) {
+            document.getElementById('targetEssentials').value = config.targets.essentials;
+            document.getElementById('targetSavings').value = config.targets.savings;
+            document.getElementById('targetInvesting').value = config.targets.investing;
+            document.getElementById('targetDebt').value = config.targets.debt;
+            document.getElementById('targetSinking').value = config.targets.sinking;
+            document.getElementById('targetLifestyle').value = config.targets.lifestyle;
+
+            document.getElementById('capEssentials').value = config.caps.essentials;
+            document.getElementById('capDebt').value = config.caps.debt;
+            document.getElementById('capLifestyle').value = config.caps.lifestyle;
+            document.getElementById('averageNetPay').value = config.averageNetPayPerCutoff || '';
+            renderIdealBreakdown();
+        }
+
+        function collectFieldValues() {
+            return {
+                targets: {
+                    essentials: clampPercent(document.getElementById('targetEssentials').value, DEFAULT_TARGETS.essentials),
+                    savings: clampPercent(document.getElementById('targetSavings').value, DEFAULT_TARGETS.savings),
+                    investing: clampPercent(document.getElementById('targetInvesting').value, DEFAULT_TARGETS.investing),
+                    debt: clampPercent(document.getElementById('targetDebt').value, DEFAULT_TARGETS.debt),
+                    sinking: clampPercent(document.getElementById('targetSinking').value, DEFAULT_TARGETS.sinking),
+                    lifestyle: clampPercent(document.getElementById('targetLifestyle').value, DEFAULT_TARGETS.lifestyle)
+                },
+                caps: {
+                    essentials: clampPercent(document.getElementById('capEssentials').value, DEFAULT_CAPS.essentials),
+                    debt: clampPercent(document.getElementById('capDebt').value, DEFAULT_CAPS.debt),
+                    lifestyle: clampPercent(document.getElementById('capLifestyle').value, DEFAULT_CAPS.lifestyle)
+                },
+                averageNetPayPerCutoff: toMoney(document.getElementById('averageNetPay').value, 0)
+            };
+        }
+
+        function renderIdealBreakdown() {
+            const values = collectFieldValues();
+            const netPay = values.averageNetPayPerCutoff;
+            const entries = Object.entries(values.targets);
+            const labelMap = {
+                essentials: 'Essentials',
+                savings: 'Savings',
+                investing: 'Investing',
+                debt: 'Debt',
+                sinking: 'Sinking Fund',
+                lifestyle: 'Lifestyle'
+            };
+
+            const html = entries.map(([key, pct]) => {
+                const amount = netPay * (pct / 100);
+                return `
+                    <div class="ideal-row ideal-${key}">
+                        <strong>${labelMap[key] || key}</strong>
+                        <span>${pct.toFixed(1)}%</span>
+                        <strong>${formatCurrency(amount)}</strong>
+                    </div>
+                `;
+            }).join('');
+
+            const totalPct = entries.reduce((sum, [, pct]) => sum + pct, 0);
+            const totalAmount = entries.reduce((sum, [, pct]) => sum + (netPay * (pct / 100)), 0);
+
+            document.getElementById('idealBreakdown').innerHTML = html;
+            document.getElementById('idealTotal').textContent = `Total planned: ${formatCurrency(totalAmount)} (${totalPct.toFixed(1)}%)`;
+
+            const health = document.getElementById('targetHealth');
+            if (health) {
+                health.className = 'target-health';
+                if (Math.abs(totalPct - 100) < 0.01) {
+                    health.classList.add('good');
+                    health.textContent = 'Balanced: exactly 100%';
+                } else if (totalPct < 100) {
+                    health.classList.add('warn');
+                    health.textContent = `Under by ${(100 - totalPct).toFixed(1)}%`;
+                } else {
+                    health.classList.add('bad');
+                    health.textContent = `Over by ${(totalPct - 100).toFixed(1)}%`;
+                }
+            }
+        }
+
+        function setStatus(text) {
+            document.getElementById('settingsStatus').textContent = text;
+        }
+
+        function saveConfig() {
+            const nextConfig = collectFieldValues();
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(nextConfig));
+            renderIdealBreakdown();
+            setStatus('Saved. Your dashboard will use these percentages.');
+        }
+
+        function resetDefaults() {
+            const defaults = { targets: { ...DEFAULT_TARGETS }, caps: { ...DEFAULT_CAPS }, averageNetPayPerCutoff: 0 };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
+            setFieldValues(defaults);
+            setStatus('Defaults restored.');
+        }
+
+        document.getElementById('saveBtn').addEventListener('click', saveConfig);
+        document.getElementById('resetBtn').addEventListener('click', resetDefaults);
+        [
+            'targetEssentials', 'targetSavings', 'targetInvesting', 'targetDebt', 'targetSinking', 'targetLifestyle',
+            'averageNetPay'
+        ].forEach(id => {
+            const input = document.getElementById(id);
+            if (input) input.addEventListener('input', renderIdealBreakdown);
+        });
+        setFieldValues(getCurrentConfig());
+    </script>
+</body>
+</html>

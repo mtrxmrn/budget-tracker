@@ -13,7 +13,7 @@ let currentModal = { editRow: null, editTable: null, expenseRow: null, expenseTa
 const STORAGE_SCHEMA_VERSION = 3;
 const CURRENCY_SYMBOL = '\u20B1';
 const CATEGORY_TYPES = ['fixed', 'essential', 'lifestyle', 'sinking', 'savings', 'investing', 'debt'];
-const ALLOCATION_TARGETS = {
+const DEFAULT_ALLOCATION_TARGETS = {
     essentials: 50,
     savings: 15,
     investing: 10,
@@ -21,11 +21,43 @@ const ALLOCATION_TARGETS = {
     sinking: 10,
     lifestyle: 5
 };
-const CATEGORY_CAPS = {
+const DEFAULT_CATEGORY_CAPS = {
     lifestyle: 20,
     debt: 20,
     essentials: 60
 };
+const ADVISOR_CONFIG_STORAGE_KEY = 'budgetTrackerAdvisorConfig';
+let allocationTargets = { ...DEFAULT_ALLOCATION_TARGETS };
+let categoryCaps = { ...DEFAULT_CATEGORY_CAPS };
+
+function toPercentValue(value, fallback) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(0, Math.min(100, parsed));
+}
+
+function loadAdvisorConfig() {
+    allocationTargets = { ...DEFAULT_ALLOCATION_TARGETS };
+    categoryCaps = { ...DEFAULT_CATEGORY_CAPS };
+
+    try {
+        const raw = localStorage.getItem(ADVISOR_CONFIG_STORAGE_KEY);
+        if (!raw) return;
+
+        const parsed = JSON.parse(raw);
+        const targets = parsed && parsed.targets ? parsed.targets : {};
+        const caps = parsed && parsed.caps ? parsed.caps : {};
+
+        Object.keys(DEFAULT_ALLOCATION_TARGETS).forEach(key => {
+            allocationTargets[key] = toPercentValue(targets[key], DEFAULT_ALLOCATION_TARGETS[key]);
+        });
+        Object.keys(DEFAULT_CATEGORY_CAPS).forEach(key => {
+            categoryCaps[key] = toPercentValue(caps[key], DEFAULT_CATEGORY_CAPS[key]);
+        });
+    } catch (error) {
+        console.error('Error loading advisor configuration:', error);
+    }
+}
 
 function formatCurrency(value) {
     return `${CURRENCY_SYMBOL}${(Number(value) || 0).toFixed(2)}`;
@@ -111,6 +143,7 @@ document.addEventListener('DOMContentLoaded', function() {
     initializePresets();
     // Load settings first so currentFilter is restored before loading month-specific data
     loadSettings();
+    loadAdvisorConfig();
     loadData();
     loadSalaries();
     loadPayrollBalances();
@@ -118,6 +151,12 @@ document.addEventListener('DOMContentLoaded', function() {
     initializeTables();
     setupEventHandlers();
     initializeDarkMode();
+
+    window.addEventListener('storage', function(event) {
+        if (event.key !== ADVISOR_CONFIG_STORAGE_KEY) return;
+        loadAdvisorConfig();
+        updateFinancialDashboard();
+    });
 });
 
 function initializeTables() {
@@ -711,7 +750,7 @@ function updateFinancialDashboard() {
 
     const allocationSummary = document.getElementById('allocationSummary');
     if (allocationSummary) {
-        const lines = Object.entries(ALLOCATION_TARGETS).map(([key, target]) => {
+        const lines = Object.entries(allocationTargets).map(([key, target]) => {
             const actualPct = totalAvailable > 0 ? (byGroup[key] / totalAvailable) * 100 : 0;
             const width = Math.min(100, Math.max(0, actualPct));
             return `
@@ -733,26 +772,26 @@ function updateFinancialDashboard() {
             suggestion: 'Approach: Move 3-5% from lifestyle spending into savings first.'
         });
     }
-    if (essentialsRatio > CATEGORY_CAPS.essentials) {
+    if (essentialsRatio > categoryCaps.essentials) {
         alerts.push({
             type: 'warn',
-            text: `Essentials exceeded cap (${CATEGORY_CAPS.essentials}%).`,
+            text: `Essentials exceeded cap (${categoryCaps.essentials}%).`,
             suggestion: 'Approach: Review fixed bills and cut/renegotiate one major cost.'
         });
     }
-    if (debtRatio > CATEGORY_CAPS.debt) {
+    if (debtRatio > categoryCaps.debt) {
         alerts.push({
             type: 'warn',
-            text: `Debt exceeded cap (${CATEGORY_CAPS.debt}%).`,
+            text: `Debt exceeded cap (${categoryCaps.debt}%).`,
             suggestion: 'Approach: Pause new installments and prioritize extra debt payoff.'
         });
     }
 
     const lifestylePct = totalAvailable > 0 ? (byGroup.lifestyle / totalAvailable) * 100 : 0;
-    if (lifestylePct > CATEGORY_CAPS.lifestyle) {
+    if (lifestylePct > categoryCaps.lifestyle) {
         alerts.push({
             type: 'warn',
-            text: `Lifestyle exceeded cap (${CATEGORY_CAPS.lifestyle}%).`,
+            text: `Lifestyle exceeded cap (${categoryCaps.lifestyle}%).`,
             suggestion: 'Approach: Set a weekly leisure cap and shift excess to sinking fund.'
         });
     }
