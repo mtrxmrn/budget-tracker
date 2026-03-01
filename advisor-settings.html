@@ -217,11 +217,27 @@
 
         <section class="settings-card">
             <h3>Per Cut-off Planning</h3>
-            <p class="section-subtitle">Use your average net pay to estimate ideal amounts.</p>
+            <p class="section-subtitle">Use your average net pay and period to estimate summary totals.</p>
             <div class="settings-grid">
                 <div class="settings-field">
                     <label for="averageNetPay">Average Net Pay per cut-off</label>
                     <input type="number" id="averageNetPay" min="0" step="0.01" placeholder="0.00">
+                </div>
+                <div class="settings-field">
+                    <label for="projectionSpan">Period</label>
+                    <select id="projectionSpan">
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                    </select>
+                </div>
+                <div class="settings-field">
+                    <label for="projectionUnit">Unit</label>
+                    <select id="projectionUnit">
+                        <option value="cutoffs">Cut-off(s)</option>
+                        <option value="months">Month(s)</option>
+                        <option value="years">Year(s)</option>
+                    </select>
                 </div>
             </div>
             <p class="settings-note">This generates ideal category amounts based on your target percentages.</p>
@@ -288,6 +304,16 @@
             return Math.max(0, num);
         }
 
+        function clampProjectionSpan(value, fallback = 1) {
+            const num = Number(value);
+            return [1, 2, 3].includes(num) ? num : fallback;
+        }
+
+        function normalizeProjectionUnit(value, fallback = 'cutoffs') {
+            if (value === 'years' || value === 'months' || value === 'cutoffs') return value;
+            return fallback;
+        }
+
         function formatCurrency(value) {
             return `${CURRENCY_SYMBOL}${(Number(value) || 0).toFixed(2)}`;
         }
@@ -296,7 +322,12 @@
             const config = {
                 targets: { ...DEFAULT_TARGETS },
                 caps: { ...DEFAULT_CAPS },
-                averageNetPayPerCutoff: 0
+                averageNetPayPerCutoff: 0,
+                planningProjection: {
+                    span: 1,
+                    unit: 'cutoffs'
+                },
+                planningProjectionUserSet: false
             };
 
             try {
@@ -311,6 +342,12 @@
                     config.caps[key] = clampPercent(parsed?.caps?.[key], DEFAULT_CAPS[key]);
                 });
                 config.averageNetPayPerCutoff = toMoney(parsed?.averageNetPayPerCutoff, 0);
+                config.planningProjection.span = clampProjectionSpan(parsed?.planningProjection?.span, 1);
+                const wasUserSet = Boolean(parsed?.planningProjectionUserSet);
+                const loadedUnit = normalizeProjectionUnit(parsed?.planningProjection?.unit, 'cutoffs');
+                // Migrate legacy default "months" to "cutoffs" unless user explicitly set a value before.
+                config.planningProjection.unit = (!wasUserSet && loadedUnit === 'months') ? 'cutoffs' : loadedUnit;
+                config.planningProjectionUserSet = wasUserSet;
             } catch (error) {
                 console.error('Failed to load advisor config:', error);
             }
@@ -330,6 +367,8 @@
             document.getElementById('capDebt').value = config.caps.debt;
             document.getElementById('capLifestyle').value = config.caps.lifestyle;
             document.getElementById('averageNetPay').value = config.averageNetPayPerCutoff || '';
+            document.getElementById('projectionSpan').value = String(clampProjectionSpan(config?.planningProjection?.span, 1));
+            document.getElementById('projectionUnit').value = normalizeProjectionUnit(config?.planningProjection?.unit, 'cutoffs');
             renderIdealBreakdown();
         }
 
@@ -348,13 +387,22 @@
                     debt: clampPercent(document.getElementById('capDebt').value, DEFAULT_CAPS.debt),
                     lifestyle: clampPercent(document.getElementById('capLifestyle').value, DEFAULT_CAPS.lifestyle)
                 },
-                averageNetPayPerCutoff: toMoney(document.getElementById('averageNetPay').value, 0)
+                averageNetPayPerCutoff: toMoney(document.getElementById('averageNetPay').value, 0),
+                planningProjection: {
+                    span: clampProjectionSpan(document.getElementById('projectionSpan').value, 1),
+                    unit: normalizeProjectionUnit(document.getElementById('projectionUnit').value, 'cutoffs')
+                },
+                planningProjectionUserSet: true
             };
         }
 
         function renderIdealBreakdown() {
             const values = collectFieldValues();
             const netPay = values.averageNetPayPerCutoff;
+            const span = clampProjectionSpan(values?.planningProjection?.span, 1);
+            const unit = normalizeProjectionUnit(values?.planningProjection?.unit, 'cutoffs');
+            const cutoffCount = unit === 'years' ? span * 24 : unit === 'months' ? span * 2 : span;
+            const horizonLabel = `${span} ${unit} (${cutoffCount} cut-offs)`;
             const entries = Object.entries(values.targets);
             const labelMap = {
                 essentials: 'Essentials',
@@ -366,7 +414,7 @@
             };
 
             const html = entries.map(([key, pct]) => {
-                const amount = netPay * (pct / 100);
+                const amount = netPay * (pct / 100) * cutoffCount;
                 return `
                     <div class="ideal-row ideal-${key}">
                         <strong>${labelMap[key] || key}</strong>
@@ -377,10 +425,10 @@
             }).join('');
 
             const totalPct = entries.reduce((sum, [, pct]) => sum + pct, 0);
-            const totalAmount = entries.reduce((sum, [, pct]) => sum + (netPay * (pct / 100)), 0);
+            const totalAmount = entries.reduce((sum, [, pct]) => sum + (netPay * (pct / 100) * cutoffCount), 0);
 
             document.getElementById('idealBreakdown').innerHTML = html;
-            document.getElementById('idealTotal').textContent = `Total planned: ${formatCurrency(totalAmount)} (${totalPct.toFixed(1)}%)`;
+            document.getElementById('idealTotal').textContent = `Total planned (${horizonLabel}): ${formatCurrency(totalAmount)} (${totalPct.toFixed(1)}%)`;
 
             const health = document.getElementById('targetHealth');
             if (health) {
@@ -410,7 +458,13 @@
         }
 
         function resetDefaults() {
-            const defaults = { targets: { ...DEFAULT_TARGETS }, caps: { ...DEFAULT_CAPS }, averageNetPayPerCutoff: 0 };
+            const defaults = {
+                targets: { ...DEFAULT_TARGETS },
+                caps: { ...DEFAULT_CAPS },
+                averageNetPayPerCutoff: 0,
+                planningProjection: { span: 1, unit: 'cutoffs' },
+                planningProjectionUserSet: false
+            };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(defaults));
             setFieldValues(defaults);
             setStatus('Defaults restored.');
@@ -424,6 +478,12 @@
         ].forEach(id => {
             const input = document.getElementById(id);
             if (input) input.addEventListener('input', renderIdealBreakdown);
+        });
+        ['projectionSpan', 'projectionUnit'].forEach(id => {
+            const input = document.getElementById(id);
+            if (!input) return;
+            input.addEventListener('change', renderIdealBreakdown);
+            input.addEventListener('input', renderIdealBreakdown);
         });
         setFieldValues(getCurrentConfig());
     </script>

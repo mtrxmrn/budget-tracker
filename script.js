@@ -10,9 +10,11 @@ let currentFilter = null;
 let presets = {};
 let currentEditingPreset = 1;
 let currentModal = { editRow: null, editTable: null, expenseRow: null, expenseTable: null };
+let expenseDatePicker = null;
+let presetChartEventsBound = false;
 const STORAGE_SCHEMA_VERSION = 3;
 const CURRENCY_SYMBOL = '\u20B1';
-const CATEGORY_TYPES = ['fixed', 'essential', 'lifestyle', 'sinking', 'savings', 'investing', 'debt'];
+const CATEGORY_TYPES = ['essential', 'lifestyle', 'sinking', 'savings', 'investing', 'debt'];
 const DEFAULT_ALLOCATION_TARGETS = {
     essentials: 50,
     savings: 15,
@@ -27,6 +29,7 @@ const DEFAULT_CATEGORY_CAPS = {
     essentials: 60
 };
 const ADVISOR_CONFIG_STORAGE_KEY = 'budgetTrackerAdvisorConfig';
+const PRESET_AVG_NET_PAY_STORAGE_KEY = 'budgetTrackerPresetAverageNetPayPerCutoff';
 let allocationTargets = { ...DEFAULT_ALLOCATION_TARGETS };
 let categoryCaps = { ...DEFAULT_CATEGORY_CAPS };
 
@@ -63,6 +66,10 @@ function formatCurrency(value) {
     return `${CURRENCY_SYMBOL}${(Number(value) || 0).toFixed(2)}`;
 }
 
+function formatPhpCurrency(value) {
+    return `PHP ${(Number(value) || 0).toFixed(2)}`;
+}
+
 function sumExpenses(item) {
     if (!item || !Array.isArray(item.expenses)) return 0;
     return item.expenses.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
@@ -70,13 +77,70 @@ function sumExpenses(item) {
 
 function inferCategoryType(categoryName = '') {
     const text = categoryName.toLowerCase();
-    if (text.includes('rent') || text.includes('mortgage') || text.includes('utility') || text.includes('insurance')) return 'fixed';
+    if (text.includes('rent') || text.includes('mortgage') || text.includes('utility') || text.includes('insurance')) return 'essential';
     if (text.includes('saving')) return 'savings';
     if (text.includes('invest')) return 'investing';
     if (text.includes('debt') || text.includes('loan') || text.includes('credit')) return 'debt';
     if (text.includes('emergency') || text.includes('repair') || text.includes('gift') || text.includes('maintenance')) return 'sinking';
     if (text.includes('entertainment') || text.includes('dining') || text.includes('shopping') || text.includes('leisure')) return 'lifestyle';
     return 'essential';
+}
+
+function formatCategoryTypeLabel(type) {
+    const labels = {
+        essential: 'Essential',
+        lifestyle: 'Lifestyle',
+        sinking: 'Sinking Fund',
+        savings: 'Savings',
+        investing: 'Investing',
+        debt: 'Debt'
+    };
+    return labels[type] || 'Essential';
+}
+
+function getTypeColor(type) {
+    const colors = {
+        essential: '#2563eb',
+        lifestyle: '#f97316',
+        sinking: '#14b8a6',
+        savings: '#16a34a',
+        investing: '#8b5cf6',
+        debt: '#dc2626'
+    };
+    return colors[type] || '#64748b';
+}
+
+function getPresetAverageNetPay() {
+    const input = document.getElementById('presetAverageNetPay');
+    const value = Number(input ? input.value : 0);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function loadPresetAverageNetPayField() {
+    const input = document.getElementById('presetAverageNetPay');
+    if (!input) return;
+    const raw = localStorage.getItem(PRESET_AVG_NET_PAY_STORAGE_KEY);
+    const value = Number(raw);
+    input.value = Number.isFinite(value) && value > 0 ? String(value) : '';
+}
+
+function savePresetAverageNetPayField() {
+    const input = document.getElementById('presetAverageNetPay');
+    if (!input) return;
+    const value = Number(input.value);
+    if (Number.isFinite(value) && value > 0) {
+        localStorage.setItem(PRESET_AVG_NET_PAY_STORAGE_KEY, String(value));
+    } else {
+        localStorage.removeItem(PRESET_AVG_NET_PAY_STORAGE_KEY);
+    }
+}
+
+function buildTypeOptions(selectedType = 'essential') {
+    const safeType = CATEGORY_TYPES.includes(selectedType) ? selectedType : 'essential';
+    return CATEGORY_TYPES.map(type => {
+        const selected = type === safeType ? 'selected' : '';
+        return `<option value="${type}" ${selected}>${formatCategoryTypeLabel(type)}</option>`;
+    }).join('');
 }
 
 function mapTypeToAllocationGroup(type) {
@@ -111,6 +175,10 @@ function normalizeBudgetItem(item = {}) {
     if (Array.isArray(item.prePaidExpenses)) {
         normalized.prePaidExpenses = item.prePaidExpenses.map(normalizeExpense);
     }
+    if (item.advancedSourceCutoff) normalized.advancedSourceCutoff = item.advancedSourceCutoff;
+    if (item.advancedFromCategory) normalized.advancedFromCategory = item.advancedFromCategory;
+    if (Number.isFinite(Number(item.advancedAmount))) normalized.advancedAmount = Number(item.advancedAmount) || 0;
+    if (item.advancedAt) normalized.advancedAt = item.advancedAt;
 
     return normalized;
 }
@@ -150,6 +218,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadCashMoney();
     initializeTables();
     setupEventHandlers();
+    initializeExpenseDatePicker();
     initializeDarkMode();
 
     window.addEventListener('storage', function(event) {
@@ -180,7 +249,7 @@ function initializeTables() {
             { id: generateId(), category: 'Entertainment', date: '2025-07-01', budget: 300, type: 'lifestyle', expenses: [
                 { description: 'Movie tickets', date: '2025-07-19', amount: 25 }
             ]},
-            { id: generateId(), category: 'Utilities', date: '2025-07-01', budget: 150, type: 'fixed', expenses: [] }
+            { id: generateId(), category: 'Utilities', date: '2025-07-01', budget: 150, type: 'essential', expenses: [] }
         ];
         
         // Save the sample data
@@ -190,6 +259,87 @@ function initializeTables() {
 
     renderBothTables();
     initializeDragAndDrop();
+}
+
+function formatDateMMDDYYYY(date) {
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const year = String(date.getFullYear());
+    return `${month}/${day}/${year}`;
+}
+
+function getTodayMMDDYYYYUtcPlus8() {
+    // Use UTC+8 calendar date regardless of local machine timezone.
+    const now = new Date();
+    const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const utcPlus8 = new Date(utcMs + (8 * 60 * 60000));
+    return formatDateMMDDYYYY(utcPlus8);
+}
+
+function normalizeExpenseDateInput(value) {
+    const raw = (value || '').toString().trim();
+    if (!raw) return getTodayMMDDYYYYUtcPlus8();
+
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) return raw;
+    if (/^\d{2}\/\d{2}\/\d{2}$/.test(raw)) {
+        const [m, d, yy] = raw.split('/');
+        return `${m}/${d}/20${yy}`;
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        const parsed = new Date(`${raw}T00:00:00`);
+        if (!Number.isNaN(parsed.getTime())) return formatDateMMDDYYYY(parsed);
+    }
+
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) return formatDateMMDDYYYY(parsed);
+    return getTodayMMDDYYYYUtcPlus8();
+}
+
+function initializeExpenseDatePicker() {
+    const dateInput = document.getElementById('expenseDate');
+    if (!dateInput || typeof Litepicker === 'undefined') {
+        setExpenseDateToToday();
+        return;
+    }
+
+    expenseDatePicker = new Litepicker({
+        element: dateInput,
+        singleMode: true,
+        autoApply: true,
+        allowRepick: true,
+        format: 'MM/DD/YYYY',
+        numberOfMonths: 1,
+        numberOfColumns: 1,
+        dropdowns: {
+            minYear: 2020,
+            maxYear: 2035,
+            months: true,
+            years: true
+        }
+    });
+
+    setExpenseDateToToday();
+}
+
+function setExpenseDateToToday() {
+    const dateInput = document.getElementById('expenseDate');
+    if (!dateInput) return;
+    const today = getTodayMMDDYYYYUtcPlus8();
+    dateInput.value = today;
+    if (expenseDatePicker) {
+        expenseDatePicker.setDate(today);
+    }
+}
+
+function setExpenseDateValue(dateValue) {
+    const dateInput = document.getElementById('expenseDate');
+    if (!dateInput) return;
+    const safeDate = normalizeExpenseDateInput(dateValue);
+    dateInput.value = safeDate;
+    if (expenseDatePicker) {
+        expenseDatePicker.setDate(safeDate);
+    }
 }
 
 function addSampleData() {
@@ -207,7 +357,7 @@ function addSampleData() {
         { id: generateId(), category: 'Entertainment', budget: 300, type: 'lifestyle', expenses: [
             { description: 'Movie tickets', amount: 25 }
         ]},
-        { id: generateId(), category: 'Utilities', budget: 150, type: 'fixed', expenses: [] }
+        { id: generateId(), category: 'Utilities', budget: 150, type: 'essential', expenses: [] }
     ];
 }
 
@@ -247,6 +397,9 @@ function createTableRow(item, tableType) {
     const variance = item.budget - totalSpent;
     const budgetPercentage = item.budget > 0 ? (totalSpent / item.budget) * 100 : 0;
     const isPaid = Boolean(item.paid);
+    const resolvedType = CATEGORY_TYPES.includes(item.type) ? item.type : inferCategoryType(item.category);
+    const isAdvanced = Boolean(item.advancedSourceCutoff);
+    const advancedFromLabel = item.advancedSourceCutoff === 'first' ? '1st' : '2nd';
 
     // Determine styling based on budget percentage
     let rowClass = '';
@@ -277,22 +430,35 @@ function createTableRow(item, tableType) {
     const spentDisplay = `<span class="spent-amount ${spentClass}">${formatCurrency(totalSpent)}</span>`;
     const varianceClass = variance >= 0 ? 'variance-positive' : 'variance-negative';
     const varianceDisplay = `<span class="variance-pill ${varianceClass}">${variance >= 0 ? '+' : '-'}${formatCurrency(Math.abs(variance))}</span>`;
-    const typeLabel = (item.type || 'essential').replace(/^\w/, c => c.toUpperCase());
+    const typeLabel = formatCategoryTypeLabel(resolvedType);
+
+    if (isAdvanced) row.classList.add('advanced-row');
 
     row.innerHTML = `
         <td class="col-order drag-handle">::</td>
-        <td class="col-category">${item.category}<span class="category-type-chip">${typeLabel}</span></td>
+        <td class="col-category">
+            ${item.category}
+            <span class="category-type-chip">${typeLabel}</span>
+            ${isAdvanced ? `<span class="category-advanced-chip" title="Paid using ${advancedFromLabel} cut-off money">Advanced from ${advancedFromLabel}</span>` : ''}
+        </td>
         <td class="col-budget">${formatCurrency(item.budget)}</td>
         <td class="col-spent spent-cell">
             ${spentDisplay}
             ${varianceDisplay}
+            ${isAdvanced ? '<span class="advanced-pill">Advanced</span>' : ''}
             <button class="add-expense-btn" onclick="openExpenseModal('${item.id}', '${tableType}')" title="Open breakdown">+</button>
         </td>
         <td class="col-action action-cell">
             <div class="action-buttons">
                 <button class="action-btn edit-btn" onclick="editRow('${item.id}', '${tableType}')">Edit</button>
-                <button class="action-btn paid-toggle-btn ${isPaid ? 'unpaid-btn' : ''}" onclick="markAsPaid('${item.id}', '${tableType}')">${isPaid ? 'Unpaid' : 'Paid'}</button>
-                <button class="action-btn delete-btn" onclick="deleteRow('${item.id}', '${tableType}')">Del</button>
+                <div class="action-more-wrap">
+                    <button class="action-btn more-btn" type="button">More</button>
+                    <div class="action-more-menu">
+                        <button class="action-btn paid-toggle-btn ${isPaid ? 'unpaid-btn' : ''}" onclick="markAsPaid('${item.id}', '${tableType}')">${isPaid ? 'Unpaid' : 'Paid'}</button>
+                        <button class="action-btn advance-btn" onclick="advancePayment('${item.id}', '${tableType}')">Advance</button>
+                        <button class="action-btn delete-btn" onclick="deleteRow('${item.id}', '${tableType}')">Del</button>
+                    </div>
+                </div>
             </div>
         </td>
     `;
@@ -325,7 +491,6 @@ function editRow(id, tableType) {
     currentModal.editRow = id;
     currentModal.editTable = tableType;
     document.getElementById('editCategory').value = item.category;
-    document.getElementById('editDate').value = item.date || '';
     document.getElementById('editBudget').value = item.budget;
     document.getElementById('editType').value = item.type || inferCategoryType(item.category);
     document.getElementById('editModal').style.display = 'block';
@@ -333,7 +498,6 @@ function editRow(id, tableType) {
 
 function saveEdit() {
     const category = document.getElementById('editCategory').value.trim();
-    const date = document.getElementById('editDate').value;
     const budget = parseFloat(document.getElementById('editBudget').value) || 0;
     const type = document.getElementById('editType').value;
     
@@ -350,7 +514,6 @@ function saveEdit() {
     const item = budgetData[currentModal.editTable].find(item => item.id === currentModal.editRow);
     if (item) {
         item.category = category;
-        item.date = date;
         item.budget = budget;
         item.type = CATEGORY_TYPES.includes(type) ? type : inferCategoryType(category);
         renderTable(currentModal.editTable);
@@ -373,29 +536,110 @@ function deleteRow(id, tableType) {
     }
 }
 
-function markAsPaid(id, tableType) {
-    const item = budgetData[tableType].find(entry => entry.id === id);
-    if (!item) return;
+function getBudgetItemMonth(item) {
+    if (item && item.date) return item.date.substring(0, 7);
+    return currentFilter || getCurrentMonth();
+}
 
-    if (item.paid) {
+function normalizeCategoryKey(name = '') {
+    return name.toString().trim().toLowerCase();
+}
+
+function setItemPaidState(item, isPaid) {
+    if (!item) return;
+    delete item.advancedSourceCutoff;
+    delete item.advancedFromCategory;
+    delete item.advancedAmount;
+    delete item.advancedAt;
+
+    if (!isPaid) {
         item.expenses = Array.isArray(item.prePaidExpenses) ? item.prePaidExpenses.map(normalizeExpense) : [];
         item.paid = false;
         item.paidAt = '';
         delete item.prePaidExpenses;
-    } else {
-        const paidDate = item.date || new Date().toISOString().split('T')[0];
-        const paidAmount = parseFloat(item.budget) || 0;
-        item.prePaidExpenses = Array.isArray(item.expenses) ? item.expenses.map(normalizeExpense) : [];
-        item.expenses = [{
-            description: item.category,
-            date: paidDate,
-            amount: paidAmount
-        }];
-        item.paid = true;
-        item.paidAt = new Date().toISOString();
+        return;
     }
 
-    renderTable(tableType);
+    const paidDate = item.date || new Date().toISOString().split('T')[0];
+    const paidAmount = parseFloat(item.budget) || 0;
+    item.prePaidExpenses = Array.isArray(item.expenses) ? item.expenses.map(normalizeExpense) : [];
+    item.expenses = [{
+        description: item.category,
+        date: paidDate,
+        amount: paidAmount
+    }];
+    item.paid = true;
+    item.paidAt = new Date().toISOString();
+}
+
+function clearAdvancedFlags(item) {
+    if (!item) return;
+    delete item.advancedSourceCutoff;
+    delete item.advancedFromCategory;
+    delete item.advancedAmount;
+    delete item.advancedAt;
+}
+
+function revertAdvancedCounterpartForSource(sourceItem, sourceTableType) {
+    if (!sourceItem) return;
+    const counterpartTable = sourceTableType === 'first' ? 'second' : 'first';
+    const month = getBudgetItemMonth(sourceItem);
+    const sourceCategoryKey = normalizeCategoryKey(sourceItem.category);
+
+    const counterpart = budgetData[counterpartTable].find(entry =>
+        getBudgetItemMonth(entry) === month &&
+        normalizeCategoryKey(entry.category) === sourceCategoryKey &&
+        entry.advancedSourceCutoff === sourceTableType
+    );
+
+    if (!counterpart) return;
+
+    const originalBudget = Number(counterpart.advancedAmount) || 0;
+    counterpart.budget = originalBudget;
+    clearAdvancedFlags(counterpart);
+}
+
+function markAsPaid(id, tableType) {
+    const item = budgetData[tableType].find(entry => entry.id === id);
+    if (!item) return;
+    if (item.paid) {
+        revertAdvancedCounterpartForSource(item, tableType);
+    }
+    setItemPaidState(item, !item.paid);
+
+    renderBothTables();
+    saveData();
+}
+
+function advancePayment(id, tableType) {
+    const sourceItem = budgetData[tableType].find(entry => entry.id === id);
+    if (!sourceItem) return;
+
+    setItemPaidState(sourceItem, true);
+
+    const month = getBudgetItemMonth(sourceItem);
+    const counterpartTable = tableType === 'first' ? 'second' : 'first';
+    const sourceCategoryKey = normalizeCategoryKey(sourceItem.category);
+    const counterpart = budgetData[counterpartTable].find(entry => {
+        return (
+            getBudgetItemMonth(entry) === month &&
+            normalizeCategoryKey(entry.category) === sourceCategoryKey
+        );
+    });
+
+    if (counterpart) {
+        const previousBudget = Number(counterpart.budget) || 0;
+        counterpart.budget = 0;
+        if (counterpart.paid) {
+            setItemPaidState(counterpart, false);
+        }
+        counterpart.advancedSourceCutoff = tableType;
+        counterpart.advancedFromCategory = sourceItem.category;
+        counterpart.advancedAmount = previousBudget;
+        counterpart.advancedAt = new Date().toISOString();
+    }
+
+    renderBothTables();
     saveData();
 }
 
@@ -434,6 +678,7 @@ function openExpenseModal(id, tableType) {
     document.getElementById('modalTitle').textContent = `Expense Breakdown - ${item.category}`;
     renderExpenseList(item.expenses);
     document.getElementById('expenseModal').style.display = 'block';
+    setExpenseDateToToday();
 }
 
 function renderExpenseList(expenses) {
@@ -467,7 +712,7 @@ function addExpense() {
     }
     
     const description = document.getElementById('expenseDescription').value.trim();
-    const date = document.getElementById('expenseDate').value;
+    const date = normalizeExpenseDateInput(document.getElementById('expenseDate').value);
     const amount = parseFloat(document.getElementById('expenseAmount').value) || 0;
     
     if (!description || amount <= 0) {
@@ -486,7 +731,7 @@ function addExpense() {
         saveData();
         
         document.getElementById('expenseDescription').value = '';
-        document.getElementById('expenseDate').value = '';
+        setExpenseDateToToday();
         document.getElementById('expenseAmount').value = '';
     }
 }
@@ -498,7 +743,7 @@ function editExpense(index) {
         
         // Pre-fill the form with current expense data
         document.getElementById('expenseDescription').value = expense.description || '';
-        document.getElementById('expenseDate').value = expense.date || '';
+        setExpenseDateValue(expense.date);
         document.getElementById('expenseAmount').value = expense.amount || '';
         
         // Store the index being edited
@@ -515,7 +760,7 @@ function editExpense(index) {
 
 function updateExpense() {
     const description = document.getElementById('expenseDescription').value.trim();
-    const date = document.getElementById('expenseDate').value;
+    const date = normalizeExpenseDateInput(document.getElementById('expenseDate').value);
     const amount = parseFloat(document.getElementById('expenseAmount').value) || 0;
     
     if (!description || amount <= 0) {
@@ -535,7 +780,7 @@ function updateExpense() {
         
         // Reset form and button
         document.getElementById('expenseDescription').value = '';
-        document.getElementById('expenseDate').value = '';
+        setExpenseDateToToday();
         document.getElementById('expenseAmount').value = '';
         
         // Reset button back to Add
@@ -572,7 +817,7 @@ function closeModal() {
     
     // Reset form
     document.getElementById('expenseDescription').value = '';
-    document.getElementById('expenseDate').value = '';
+    setExpenseDateToToday();
     document.getElementById('expenseAmount').value = '';
     
     // Reset button back to Add if it was in edit mode
@@ -776,7 +1021,7 @@ function updateFinancialDashboard() {
         alerts.push({
             type: 'warn',
             text: `Essentials exceeded cap (${categoryCaps.essentials}%).`,
-            suggestion: 'Approach: Review fixed bills and cut/renegotiate one major cost.'
+            suggestion: 'Approach: Review essential costs and cut/renegotiate one major cost.'
         });
     }
     if (debtRatio > categoryCaps.debt) {
@@ -1323,14 +1568,30 @@ function importFromCSV(event) {
 function initializePresets() {
     const saved = localStorage.getItem('budgetTrackerPresets');
     if (saved) {
-        presets = JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        const normalizePresetItems = (items = []) => {
+            if (!Array.isArray(items)) return [];
+            return items.map(item => {
+                const category = (item && item.category ? item.category : '').toString();
+                const budget = Number(item && item.budget) || 0;
+                const type = CATEGORY_TYPES.includes(item && item.type) ? item.type : inferCategoryType(category);
+                return { category, budget, type };
+            });
+        };
+        presets = {
+            1: { name: parsed?.[1]?.name || 'Preset 1', first: normalizePresetItems(parsed?.[1]?.first), second: normalizePresetItems(parsed?.[1]?.second) },
+            2: { name: parsed?.[2]?.name || 'Preset 2', first: normalizePresetItems(parsed?.[2]?.first), second: normalizePresetItems(parsed?.[2]?.second) },
+            3: { name: parsed?.[3]?.name || 'Preset 3', first: normalizePresetItems(parsed?.[3]?.first), second: normalizePresetItems(parsed?.[3]?.second) },
+            4: { name: parsed?.[4]?.name || 'Preset 4', first: normalizePresetItems(parsed?.[4]?.first), second: normalizePresetItems(parsed?.[4]?.second) },
+            5: { name: parsed?.[5]?.name || 'Preset 5', first: normalizePresetItems(parsed?.[5]?.first), second: normalizePresetItems(parsed?.[5]?.second) }
+        };
     } else {
         presets = {
-            1: { name: "Essential Budget", first: [{ category: 'Groceries', budget: 8000 }, { category: 'Transportation', budget: 3000 }], second: [{ category: 'Entertainment', budget: 3000 }] },
-            2: { name: "Student Budget", first: [{ category: 'Food', budget: 5000 }, { category: 'Transportation', budget: 2000 }], second: [{ category: 'Entertainment', budget: 1500 }] },
-            3: { name: "Family Budget", first: [{ category: 'Groceries', budget: 12000 }, { category: 'Utilities', budget: 4000 }], second: [{ category: 'Kids Activities', budget: 3000 }] },
-            4: { name: "Minimalist Budget", first: [{ category: 'Food', budget: 6000 }, { category: 'Rent', budget: 12000 }], second: [{ category: 'Savings', budget: 15000 }] },
-            5: { name: "Custom Preset", first: [{ category: 'Category 1', budget: 1000 }], second: [{ category: 'Category A', budget: 1000 }] }
+            1: { name: "Essential Budget", first: [{ category: 'Groceries', budget: 8000, type: 'essential' }, { category: 'Transportation', budget: 3000, type: 'essential' }], second: [{ category: 'Entertainment', budget: 3000, type: 'lifestyle' }] },
+            2: { name: "Student Budget", first: [{ category: 'Food', budget: 5000, type: 'essential' }, { category: 'Transportation', budget: 2000, type: 'essential' }], second: [{ category: 'Entertainment', budget: 1500, type: 'lifestyle' }] },
+            3: { name: "Family Budget", first: [{ category: 'Groceries', budget: 12000, type: 'essential' }, { category: 'Utilities', budget: 4000, type: 'essential' }], second: [{ category: 'Kids Activities', budget: 3000, type: 'lifestyle' }] },
+            4: { name: "Minimalist Budget", first: [{ category: 'Food', budget: 6000, type: 'essential' }, { category: 'Rent', budget: 12000, type: 'essential' }], second: [{ category: 'Savings', budget: 15000, type: 'savings' }] },
+            5: { name: "Custom Preset", first: [{ category: 'Category 1', budget: 1000, type: 'essential' }], second: [{ category: 'Category A', budget: 1000, type: 'essential' }] }
         };
         savePresets();
     }
@@ -1362,10 +1623,12 @@ function loadPreset(presetNumber) {
     }
 
     preset.first.forEach(item => {
-        budgetData.first.push({ id: generateId(), category: item.category, date: defaultDate, budget: item.budget, expenses: [], type: item.type || inferCategoryType(item.category) });
+        const resolvedType = CATEGORY_TYPES.includes(item.type) ? item.type : inferCategoryType(item.category);
+        budgetData.first.push({ id: generateId(), category: item.category, date: defaultDate, budget: item.budget, expenses: [], type: resolvedType });
     });
     preset.second.forEach(item => {
-        budgetData.second.push({ id: generateId(), category: item.category, date: defaultDate, budget: item.budget, expenses: [], type: item.type || inferCategoryType(item.category) });
+        const resolvedType = CATEGORY_TYPES.includes(item.type) ? item.type : inferCategoryType(item.category);
+        budgetData.second.push({ id: generateId(), category: item.category, date: defaultDate, budget: item.budget, expenses: [], type: resolvedType });
     });
 
     saveData();
@@ -1375,6 +1638,8 @@ function loadPreset(presetNumber) {
 function openPresetManager() {
     currentEditingPreset = 1;
     document.getElementById('presetSelect').value = '1';
+    loadPresetAverageNetPayField();
+    bindPresetChartEvents();
     loadPresetForEditing();
     document.getElementById('presetModal').style.display = 'block';
 }
@@ -1388,29 +1653,215 @@ function loadPresetForEditing() {
 
     const firstContainer = document.getElementById('firstPresetCategories');
     firstContainer.innerHTML = '';
-    preset.first.forEach((item, index) => addPresetCategoryField('first', item.category, item.budget, index));
+    preset.first.forEach((item, index) => addPresetCategoryField('first', item.category, item.budget, index, item.type || inferCategoryType(item.category)));
 
     const secondContainer = document.getElementById('secondPresetCategories');
     secondContainer.innerHTML = '';
-    preset.second.forEach((item, index) => addPresetCategoryField('second', item.category, item.budget, index));
+    preset.second.forEach((item, index) => addPresetCategoryField('second', item.category, item.budget, index, item.type || inferCategoryType(item.category)));
+    updatePresetCategoryCharts();
 }
 
 function addPresetCategory(tableType) {
     const container = document.getElementById(tableType + 'PresetCategories');
     const index = container.children.length;
-    addPresetCategoryField(tableType, 'New Category', 1000, index);
+    addPresetCategoryField(tableType, 'New Category', 1000, index, 'essential');
+    updatePresetCategoryCharts();
 }
 
-function addPresetCategoryField(tableType, category, budget, index) {
+function addPresetCategoryField(tableType, category, budget, index, type = 'essential') {
     const container = document.getElementById(tableType + 'PresetCategories');
     const div = document.createElement('div');
     div.className = 'preset-category-row';
     div.innerHTML = `
-        <input type="text" value="${category}" placeholder="Category name" class="preset-category-name">
+        <div class="preset-category-name-wrap">
+            <input type="text" value="${category}" placeholder="Category name" class="preset-category-name">
+            <span class="preset-category-info" tabindex="0" data-tip="Usage: 0.0% / 100%&#10;Budget: ${formatPhpCurrency(0)} / ${formatPhpCurrency(0)}">i</span>
+        </div>
         <input type="number" value="${budget}" placeholder="Budget" class="preset-category-budget" step="0.01">
-        <button onclick="this.parentElement.remove()" class="preset-remove-btn">Remove</button>
+        <select class="preset-category-type">${buildTypeOptions(type)}</select>
+        <button onclick="removePresetCategoryRow(this)" class="preset-remove-btn">Remove</button>
     `;
     container.appendChild(div);
+}
+
+function removePresetCategoryRow(button) {
+    if (!button || !button.parentElement) return;
+    button.parentElement.remove();
+    updatePresetCategoryCharts();
+}
+
+function collectPresetCategoriesFromContainer(containerId) {
+    const container = document.getElementById(containerId);
+    const categories = [];
+    if (!container) return categories;
+
+    Array.from(container.children).forEach(div => {
+        const categoryInput = div.querySelector('.preset-category-name');
+        const budgetInput = div.querySelector('.preset-category-budget');
+        const typeInput = div.querySelector('.preset-category-type');
+        const category = categoryInput ? categoryInput.value.trim() : '';
+        const budget = parseFloat(budgetInput ? budgetInput.value : 0) || 0;
+        const type = CATEGORY_TYPES.includes(typeInput ? typeInput.value : '') ? typeInput.value : inferCategoryType(category);
+        if (category) categories.push({ category, budget, type });
+    });
+
+    return categories;
+}
+
+function summarizePresetByType(items = []) {
+    const summary = {};
+    items.forEach(item => {
+        const type = CATEGORY_TYPES.includes(item.type) ? item.type : 'essential';
+        summary[type] = (summary[type] || 0) + (Number(item.budget) || 0);
+    });
+    return summary;
+}
+
+function updatePresetCategoryIndicatorsForContainer(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const avgNetPay = getPresetAverageNetPay();
+    Array.from(container.children).forEach(row => {
+        const info = row.querySelector('.preset-category-info');
+        const budgetInput = row.querySelector('.preset-category-budget');
+        const typeInput = row.querySelector('.preset-category-type');
+        if (!info || !budgetInput || !typeInput) return;
+
+        info.classList.remove('warn', 'danger');
+
+        const budget = parseFloat(budgetInput.value) || 0;
+        const type = CATEGORY_TYPES.includes(typeInput.value) ? typeInput.value : 'essential';
+        const group = mapTypeToAllocationGroup(type);
+        const targetPct = Number(allocationTargets[group]) || 0;
+        const allowance = avgNetPay > 0 ? avgNetPay * (targetPct / 100) : 0;
+
+        if (avgNetPay <= 0 || targetPct <= 0 || allowance <= 0) {
+            info.dataset.tip = `Usage: 0.0% / 100%\nBudget: ${formatPhpCurrency(0)} / ${formatPhpCurrency(0)}`;
+            return;
+        }
+
+        const consumptionPct = allowance > 0 ? (budget / allowance) * 100 : 0;
+        info.dataset.tip = `Usage: ${consumptionPct.toFixed(1)}% / 100%\nBudget: ${formatPhpCurrency(budget)} / ${formatPhpCurrency(allowance)}`;
+
+        if (consumptionPct > 100) {
+            info.classList.add('danger');
+        } else if (consumptionPct >= 70) {
+            info.classList.add('warn');
+        }
+    });
+}
+
+function updatePresetCategoryIndicators() {
+    updatePresetCategoryIndicatorsForContainer('firstPresetCategories');
+    updatePresetCategoryIndicatorsForContainer('secondPresetCategories');
+}
+
+function renderPresetPieChart(canvasId, legendId, items = []) {
+    const canvas = document.getElementById(canvasId);
+    const legend = document.getElementById(legendId);
+    if (!canvas || !legend) return;
+
+    const summary = summarizePresetByType(items);
+    const entries = Object.entries(summary).filter(([, amount]) => amount > 0);
+    const total = entries.reduce((sum, [, amount]) => sum + amount, 0);
+    const averageNetPay = getPresetAverageNetPay();
+    const utilizationPct = averageNetPay > 0 ? (total / averageNetPay) * 100 : 0;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!entries.length || total <= 0) {
+        ctx.fillStyle = '#d5e2f3';
+        ctx.beginPath();
+        ctx.arc(canvas.width / 2, canvas.height / 2, 55, 0, Math.PI * 2);
+        ctx.fill();
+        legend.innerHTML = '<div class="preset-legend-empty">No budget yet.</div>';
+        return;
+    }
+
+    let startAngle = -Math.PI / 2;
+    entries.forEach(([type, amount]) => {
+        const slice = (amount / total) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, canvas.height / 2);
+        ctx.arc(canvas.width / 2, canvas.height / 2, 55, startAngle, startAngle + slice);
+        ctx.closePath();
+        ctx.fillStyle = getTypeColor(type);
+        ctx.fill();
+        startAngle += slice;
+    });
+
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, canvas.height / 2, 24, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.fillStyle = '#1f3554';
+    ctx.font = 'bold 11px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(utilizationPct > 0 ? `${utilizationPct.toFixed(0)}%` : formatCurrency(total), canvas.width / 2, canvas.height / 2 - 5);
+    ctx.font = '10px Segoe UI';
+    ctx.fillStyle = '#5a6f88';
+    ctx.fillText('of net pay', canvas.width / 2, canvas.height / 2 + 9);
+
+    const legendSummaryLine = averageNetPay > 0
+        ? `<div class="preset-legend-summary">Total ${formatCurrency(total)} / Net ${formatCurrency(averageNetPay)}</div>`
+        : `<div class="preset-legend-summary">Total ${formatCurrency(total)}</div>`;
+
+    legend.innerHTML = legendSummaryLine + entries.map(([type, amount]) => {
+        const pct = total > 0 ? ((amount / total) * 100).toFixed(0) : '0';
+        return `
+            <div class="preset-legend-item">
+                <span class="preset-legend-dot" style="background:${getTypeColor(type)}"></span>
+                <span>${formatCategoryTypeLabel(type)} ${pct}%</span>
+            </div>
+        `;
+    }).join('');
+}
+
+function updatePresetCategoryCharts() {
+    const first = collectPresetCategoriesFromContainer('firstPresetCategories');
+    const second = collectPresetCategoriesFromContainer('secondPresetCategories');
+    renderPresetPieChart('firstPresetPie', 'firstPresetLegend', first);
+    renderPresetPieChart('secondPresetPie', 'secondPresetLegend', second);
+    updatePresetCategoryIndicators();
+}
+
+function bindPresetChartEvents() {
+    if (presetChartEventsBound) return;
+    const firstContainer = document.getElementById('firstPresetCategories');
+    const secondContainer = document.getElementById('secondPresetCategories');
+    const handler = () => updatePresetCategoryCharts();
+    [firstContainer, secondContainer].forEach(container => {
+        if (!container) return;
+        container.addEventListener('input', handler);
+        container.addEventListener('change', handler);
+    });
+    const netPayInput = document.getElementById('presetAverageNetPay');
+    if (netPayInput) {
+        netPayInput.addEventListener('input', () => {
+            savePresetAverageNetPayField();
+            updatePresetCategoryCharts();
+        });
+        netPayInput.addEventListener('change', () => {
+            savePresetAverageNetPayField();
+            updatePresetCategoryCharts();
+        });
+    }
+    presetChartEventsBound = true;
+}
+
+function mirrorFirstToSecondPreset() {
+    const sourceItems = collectPresetCategoriesFromContainer('firstPresetCategories');
+    const secondContainer = document.getElementById('secondPresetCategories');
+    if (!secondContainer) return;
+    secondContainer.innerHTML = '';
+    sourceItems.forEach((item, index) => {
+        addPresetCategoryField('second', item.category, item.budget, index, item.type);
+    });
+    updatePresetCategoryCharts();
 }
 
 function savePreviousBalances() {
@@ -1479,29 +1930,8 @@ function savePreset() {
         return;
     }
     
-    // Collect first cutoff categories
-    const firstContainer = document.getElementById('firstPresetCategories');
-    const firstCategories = [];
-    Array.from(firstContainer.children).forEach(div => {
-        const inputs = div.querySelectorAll('input');
-        const category = inputs[0].value.trim();
-        const budget = parseFloat(inputs[1].value) || 0;
-        if (category) {
-            firstCategories.push({ category, budget });
-        }
-    });
-    
-    // Collect second cutoff categories
-    const secondContainer = document.getElementById('secondPresetCategories');
-    const secondCategories = [];
-    Array.from(secondContainer.children).forEach(div => {
-        const inputs = div.querySelectorAll('input');
-        const category = inputs[0].value.trim();
-        const budget = parseFloat(inputs[1].value) || 0;
-        if (category) {
-            secondCategories.push({ category, budget });
-        }
-    });
+    const firstCategories = collectPresetCategoriesFromContainer('firstPresetCategories');
+    const secondCategories = collectPresetCategoriesFromContainer('secondPresetCategories');
     
     // Save preset
     presets[currentEditingPreset] = {
@@ -1518,11 +1948,11 @@ function savePreset() {
 function resetPresetToDefault() {
     if (confirm('Reset this preset to default values?')) {
         const defaultPresets = {
-            1: { name: "Essential Budget", first: [{ category: 'Groceries', budget: 8000 }, { category: 'Transportation', budget: 3000 }], second: [{ category: 'Entertainment', budget: 3000 }] },
-            2: { name: "Student Budget", first: [{ category: 'Food', budget: 5000 }, { category: 'Transportation', budget: 2000 }], second: [{ category: 'Entertainment', budget: 1500 }] },
-            3: { name: "Family Budget", first: [{ category: 'Groceries', budget: 12000 }, { category: 'Utilities', budget: 4000 }], second: [{ category: 'Kids Activities', budget: 3000 }] },
-            4: { name: "Minimalist Budget", first: [{ category: 'Food', budget: 6000 }, { category: 'Rent', budget: 12000 }], second: [{ category: 'Savings', budget: 15000 }] },
-            5: { name: "Custom Preset", first: [{ category: 'Category 1', budget: 1000 }], second: [{ category: 'Category A', budget: 1000 }] }
+            1: { name: "Essential Budget", first: [{ category: 'Groceries', budget: 8000, type: 'essential' }, { category: 'Transportation', budget: 3000, type: 'essential' }], second: [{ category: 'Entertainment', budget: 3000, type: 'lifestyle' }] },
+            2: { name: "Student Budget", first: [{ category: 'Food', budget: 5000, type: 'essential' }, { category: 'Transportation', budget: 2000, type: 'essential' }], second: [{ category: 'Entertainment', budget: 1500, type: 'lifestyle' }] },
+            3: { name: "Family Budget", first: [{ category: 'Groceries', budget: 12000, type: 'essential' }, { category: 'Utilities', budget: 4000, type: 'essential' }], second: [{ category: 'Kids Activities', budget: 3000, type: 'lifestyle' }] },
+            4: { name: "Minimalist Budget", first: [{ category: 'Food', budget: 6000, type: 'essential' }, { category: 'Rent', budget: 12000, type: 'essential' }], second: [{ category: 'Savings', budget: 15000, type: 'savings' }] },
+            5: { name: "Custom Preset", first: [{ category: 'Category 1', budget: 1000, type: 'essential' }], second: [{ category: 'Category A', budget: 1000, type: 'essential' }] }
         };
         
         presets[currentEditingPreset] = defaultPresets[currentEditingPreset];

@@ -45,6 +45,13 @@ Success criteria for changes/features:
 - No console errors on basic flows (add, delete, display)
 - Data persists across page reloads (if persistence is intended)
 - UI accessible and usable on small screens
+- Versioning text is updated whenever behavior/UI changes are shipped
+
+Versioning update rule (required on feature/fix changes):
+
+- Update footer version label in `index.html` (the `Budget Tracker Pro • Version x.y` text).
+- Update script cache-bust query in `index.html` (`script.js?v=...`) to the same version.
+- Keep both values in sync in the same change.
 
 ## How to run (quick)
 
@@ -128,3 +135,12 @@ If any assumption is wrong, update this file and annotate the actual data struct
 ---
 
 If you want, I can: inspect `script.js` and update this file with concrete data shapes and storage keys, or create a small test harness for totals. Which would you like me to do next?
+
+## Recent Updates
+
+- Version baseline: 4.3 (keep footer version and script query in sync).
+- Expense Breakdown date picker: Litepicker with MM/DD/YYYY format.
+- Expense Breakdown default date is based on UTC+8.
+- Edit Category modal fields: Category, Budget, Type (date field removed).
+- Category type choices exclude Fixed Bill; fixed-like categories are treated as essential.
+

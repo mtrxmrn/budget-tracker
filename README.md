@@ -8,10 +8,17 @@ A local-first, browser-based budget planner for managing two monthly payroll cut
 - Monthly filtering plus `Show All` view for cross-month visibility
 - Financial summary cards and KPI panel (savings rate, essentials ratio, debt ratio, budget accuracy, rollover)
 - Preset system (5 slots) to quickly load and save recurring category plans
+- Preset Manager supports per-category type selection (`Essential`, `Lifestyle`, `Sinking Fund`, `Savings`, `Investing`, `Debt`)
 - CSV import/export for backup and migration
 - Drag-and-drop category ordering
 - Dark mode with saved preference
 - Local persistence via `localStorage` (no backend required)
+- Expense Breakdown uses Litepicker with `MM/DD/YYYY` format and UTC+8 default "today"
+- Edit Category modal fields are `Category`, `Budget`, and `Type` (no date field)
+
+## Current Version
+
+- App version text/script cache-bust: `4.3`
 
 ## Quick Start
 
@@ -43,4 +50,3 @@ Then open `http://localhost:8000`.
 ## Data & Privacy
 
 All budget data is stored locally in your browser using `localStorage`. Nothing is sent to a server by this app.
-

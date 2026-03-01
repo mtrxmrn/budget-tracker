@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Budget Tracker Pro</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litepicker/dist/css/litepicker.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 </head>
@@ -68,7 +69,7 @@
                         <span id="kpiSavingsRate" class="kpi-value">0%</span>
                     </div>
                     <div class="financial-kpi-card">
-                        <span class="kpi-label">Essentials Ratio <span class="kpi-info" data-tip="Percent of total available spent on essentials (fixed + essential categories). Example: rent, groceries, utilities.">i</span></span>
+                        <span class="kpi-label">Essentials Ratio <span class="kpi-info" data-tip="Percent of total available spent on essentials categories. Example: rent, groceries, utilities.">i</span></span>
                         <span id="kpiEssentialsRatio" class="kpi-value">0%</span>
                     </div>
                     <div class="financial-kpi-card">
@@ -207,7 +208,7 @@
     </div>
 
     <footer class="app-version">
-        Budget Tracker Pro • Version 3.1
+        Budget Tracker Pro • Version 4.3
     </footer>
 
     <div id="expenseModal" class="modal">
@@ -221,7 +222,7 @@
                 <div class="add-expense-form">
                     <h4>Add New Expense</h4>
                     <input type="text" id="expenseDescription" placeholder="Description">
-                    <input type="date" id="expenseDate" placeholder="Date">
+                    <input type="text" id="expenseDate" class="expense-date-input" placeholder="Select date" autocomplete="off">
                     <input type="number" id="expenseAmount" placeholder="Amount" step="0.01">
                     <button onclick="addExpense()"><i class="fas fa-plus"></i> Add</button>
                 </div>
@@ -245,17 +246,12 @@
                     <input type="text" id="editCategory" placeholder="Category name">
                 </div>
                 <div class="form-group">
-                    <label for="editDate">Date</label>
-                    <input type="date" id="editDate" placeholder="Category date">
-                </div>
-                <div class="form-group">
                     <label for="editBudget">Budget</label>
                     <input type="number" id="editBudget" placeholder="Budget amount" step="0.01">
                 </div>
                 <div class="form-group">
-                    <label for="editType">Type <span class="kpi-info" data-tip="Choose based on purpose: Fixed/Essential for needs, Lifestyle for wants, Sinking Fund for planned future purchases, Savings/Investing for wealth goals, Debt for installment/loan payments.">i</span></label>
+                    <label for="editType">Type <span class="kpi-info" data-tip="Choose based on purpose: Essential for needs, Lifestyle for wants, Sinking Fund for planned future purchases, Savings/Investing for wealth goals, Debt for installment/loan payments.">i</span></label>
                     <select id="editType">
-                        <option value="fixed">Fixed Bill</option>
                         <option value="essential">Essential</option>
                         <option value="lifestyle">Lifestyle</option>
                         <option value="sinking">Sinking Fund</option>
@@ -278,35 +274,70 @@
                 <h3>Manage Presets</h3>
                 <span class="close" onclick="closePresetModal()">&times;</span>
             </div>
-            <div class="modal-body">
-                <div class="form-group preset-select-row">
-                    <label for="presetSelect">Select Preset to Edit</label>
-                    <select id="presetSelect" onchange="loadPresetForEditing()">
-                        <option value="1">Preset 1</option>
-                        <option value="2">Preset 2</option>
-                        <option value="3">Preset 3</option>
-                        <option value="4">Preset 4</option>
-                        <option value="5">Preset 5</option>
-                    </select>
-                </div>
+            <div class="modal-body preset-modal-body">
+                <section class="preset-panel">
+                <div class="preset-top-row">
+                    <div class="form-group preset-select-row">
+                        <label for="presetSelect">Select Preset to Edit</label>
+                        <select id="presetSelect" onchange="loadPresetForEditing()">
+                            <option value="1">Preset 1</option>
+                            <option value="2">Preset 2</option>
+                            <option value="3">Preset 3</option>
+                            <option value="4">Preset 4</option>
+                            <option value="5">Preset 5</option>
+                        </select>
+                    </div>
 
-                <div class="form-group">
-                    <label for="presetName">Preset Name</label>
-                    <input type="text" id="presetName" placeholder="Enter preset name">
-                </div>
+                    <div class="form-group">
+                        <label for="presetName">Preset Name</label>
+                        <input type="text" id="presetName" placeholder="Enter preset name">
+                    </div>
 
+                    <div class="form-group preset-netpay-row">
+                        <label for="presetAverageNetPay">Average Net Pay per-cutoff</label>
+                        <input type="number" id="presetAverageNetPay" placeholder="0.00" step="0.01" min="0">
+                    </div>
+                </div>
+                </section>
+
+                <section class="preset-panel">
+                <div class="preset-summary-grid">
+                    <div class="preset-summary-card">
+                        <h4>1st Cut-off Summary</h4>
+                        <canvas id="firstPresetPie" width="150" height="150"></canvas>
+                        <div id="firstPresetLegend" class="preset-legend"></div>
+                    </div>
+                    <div class="preset-summary-card">
+                        <h4>2nd Cut-off Summary</h4>
+                        <canvas id="secondPresetPie" width="150" height="150"></canvas>
+                        <div id="secondPresetLegend" class="preset-legend"></div>
+                    </div>
+                </div>
+                </section>
+
+                <section class="preset-panel">
                 <div class="preset-columns">
                     <div class="preset-column">
+                        <div class="preset-column-head">
                         <h4>1st Cut-off Categories</h4>
-                        <div id="firstPresetCategories"></div>
-                        <button class="btn btn-info" onclick="addPresetCategory('first')">+ Add Category</button>
+                        <div class="preset-column-actions">
+                            <button class="btn btn-info" onclick="addPresetCategory('first')">+ Add Category</button>
+                            <button class="btn btn-secondary" onclick="mirrorFirstToSecondPreset()">Mirror to 2nd</button>
+                        </div>
+                        </div>
+                        <div id="firstPresetCategories" class="preset-category-list"></div>
                     </div>
                     <div class="preset-column">
+                        <div class="preset-column-head">
                         <h4>2nd Cut-off Categories</h4>
-                        <div id="secondPresetCategories"></div>
+                        <div class="preset-column-actions">
                         <button class="btn btn-info" onclick="addPresetCategory('second')">+ Add Category</button>
+                        </div>
+                        </div>
+                        <div id="secondPresetCategories" class="preset-category-list"></div>
                     </div>
                 </div>
+                </section>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-success" onclick="savePreset()">Save Preset</button>
@@ -316,7 +347,17 @@
         </div>
     </div>
 
-    <script src="script.js?v=3.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/litepicker/dist/bundle.js"></script>
+    <script src="script.js?v=4.3"></script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
 
