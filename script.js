@@ -9,9 +9,11 @@ let previousBalanceData = { first: 0, second: 0 };
 let currentFilter = null;
 let presets = {};
 let currentEditingPreset = 1;
+let currentPresetSlot = 1;
 let currentModal = { editRow: null, editTable: null, expenseRow: null, expenseTable: null };
 let expenseDatePicker = null;
 let presetChartEventsBound = false;
+let presetSortablesInitialized = false;
 const STORAGE_SCHEMA_VERSION = 3;
 const CURRENCY_SYMBOL = '\u20B1';
 const CATEGORY_TYPES = ['essential', 'lifestyle', 'sinking', 'savings', 'investing', 'debt'];
@@ -1607,6 +1609,8 @@ function loadPreset(presetNumber) {
         alert('Preset not found!');
         return;
     }
+    currentPresetSlot = presetNumber;
+    syncPresetQuickSelect();
 
     const preset = presets[presetNumber];
     if (!confirm(`Load "${preset.name}" preset? This will REPLACE all current categories in both tables.`)) return;
@@ -1636,16 +1640,39 @@ function loadPreset(presetNumber) {
 }
 
 function openPresetManager() {
-    currentEditingPreset = 1;
-    document.getElementById('presetSelect').value = '1';
+    currentEditingPreset = presets[currentPresetSlot] ? currentPresetSlot : 1;
+    document.getElementById('presetSelect').value = String(currentEditingPreset);
     loadPresetAverageNetPayField();
     bindPresetChartEvents();
+    initializePresetDragAndDrop();
     loadPresetForEditing();
     document.getElementById('presetModal').style.display = 'block';
 }
 
+function initializePresetDragAndDrop() {
+    if (presetSortablesInitialized || typeof Sortable === 'undefined') return;
+
+    const firstContainer = document.getElementById('firstPresetCategories');
+    const secondContainer = document.getElementById('secondPresetCategories');
+    if (!firstContainer || !secondContainer) return;
+
+    const sortableConfig = {
+        animation: 150,
+        handle: '.preset-drag-handle',
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        onEnd: () => updatePresetCategoryCharts()
+    };
+
+    new Sortable(firstContainer, sortableConfig);
+    new Sortable(secondContainer, sortableConfig);
+    presetSortablesInitialized = true;
+}
+
 function loadPresetForEditing() {
     currentEditingPreset = parseInt(document.getElementById('presetSelect').value, 10);
+    currentPresetSlot = currentEditingPreset;
+    syncPresetQuickSelect();
     const preset = presets[currentEditingPreset];
     if (!preset) return;
 
@@ -1673,6 +1700,7 @@ function addPresetCategoryField(tableType, category, budget, index, type = 'esse
     const div = document.createElement('div');
     div.className = 'preset-category-row';
     div.innerHTML = `
+        <span class="preset-drag-handle drag-handle" title="Drag to reorder">::</span>
         <div class="preset-category-name-wrap">
             <input type="text" value="${category}" placeholder="Category name" class="preset-category-name">
             <span class="preset-category-info" tabindex="0" data-tip="Usage: 0.0% / 100%&#10;Budget: ${formatPhpCurrency(0)} / ${formatPhpCurrency(0)}">i</span>
@@ -1777,21 +1805,19 @@ function renderPresetPieChart(canvasId, legendId, items = []) {
         ctx.beginPath();
         ctx.arc(canvas.width / 2, canvas.height / 2, 55, 0, Math.PI * 2);
         ctx.fill();
-        legend.innerHTML = '<div class="preset-legend-empty">No budget yet.</div>';
-        return;
+    } else {
+        let startAngle = -Math.PI / 2;
+        entries.forEach(([type, amount]) => {
+            const slice = (amount / total) * Math.PI * 2;
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, canvas.height / 2);
+            ctx.arc(canvas.width / 2, canvas.height / 2, 55, startAngle, startAngle + slice);
+            ctx.closePath();
+            ctx.fillStyle = getTypeColor(type);
+            ctx.fill();
+            startAngle += slice;
+        });
     }
-
-    let startAngle = -Math.PI / 2;
-    entries.forEach(([type, amount]) => {
-        const slice = (amount / total) * Math.PI * 2;
-        ctx.beginPath();
-        ctx.moveTo(canvas.width / 2, canvas.height / 2);
-        ctx.arc(canvas.width / 2, canvas.height / 2, 55, startAngle, startAngle + slice);
-        ctx.closePath();
-        ctx.fillStyle = getTypeColor(type);
-        ctx.fill();
-        startAngle += slice;
-    });
 
     ctx.beginPath();
     ctx.arc(canvas.width / 2, canvas.height / 2, 24, 0, Math.PI * 2);
@@ -1810,12 +1836,15 @@ function renderPresetPieChart(canvasId, legendId, items = []) {
         ? `<div class="preset-legend-summary">Total ${formatCurrency(total)} / Net ${formatCurrency(averageNetPay)}</div>`
         : `<div class="preset-legend-summary">Total ${formatCurrency(total)}</div>`;
 
-    legend.innerHTML = legendSummaryLine + entries.map(([type, amount]) => {
-        const pct = total > 0 ? ((amount / total) * 100).toFixed(0) : '0';
+    legend.innerHTML = legendSummaryLine + CATEGORY_TYPES.map(type => {
+        const amount = Number(summary[type]) || 0;
+        const designGroup = mapTypeToAllocationGroup(type);
+        const designPct = Number(allocationTargets[designGroup]) || 0;
+        const currentPct = averageNetPay > 0 ? ((amount / averageNetPay) * 100) : 0;
         return `
             <div class="preset-legend-item">
                 <span class="preset-legend-dot" style="background:${getTypeColor(type)}"></span>
-                <span>${formatCategoryTypeLabel(type)} ${pct}%</span>
+                <span>${formatCategoryTypeLabel(type)} ${currentPct.toFixed(1)}% / ${designPct.toFixed(1)}%</span>
             </div>
         `;
     }).join('');
@@ -1963,7 +1992,25 @@ function resetPresetToDefault() {
 }
 
 function updatePresetButtonLabels() {
-    // Update button labels with preset names
+    // Update preset quick-select labels with preset names
+    const quickSelect = document.getElementById('presetQuickSelect');
+    if (quickSelect) {
+        const previous = parseInt(quickSelect.value, 10);
+        quickSelect.innerHTML = '';
+        for (let i = 1; i <= 5; i++) {
+            const option = document.createElement('option');
+            option.value = String(i);
+            option.textContent = presets[i] ? presets[i].name : `Preset ${i}`;
+            quickSelect.appendChild(option);
+        }
+        const selectedSlot = presets[currentPresetSlot]
+            ? currentPresetSlot
+            : (presets[previous] ? previous : 1);
+        quickSelect.value = String(selectedSlot);
+        currentPresetSlot = selectedSlot;
+    }
+
+    // Backward compatibility if legacy preset buttons still exist
     for (let i = 1; i <= 5; i++) {
         const button = document.getElementById(`presetBtn${i}`);
         if (button && presets[i]) {
@@ -1971,6 +2018,26 @@ function updatePresetButtonLabels() {
             button.title = presets[i].name; // Add tooltip for full name
         }
     }
+}
+
+function setCurrentPresetSlot(slotValue) {
+    const slot = parseInt(slotValue, 10);
+    if (![1, 2, 3, 4, 5].includes(slot)) return;
+    currentPresetSlot = slot;
+}
+
+function syncPresetQuickSelect() {
+    const quickSelect = document.getElementById('presetQuickSelect');
+    if (!quickSelect) return;
+    quickSelect.value = String(currentPresetSlot);
+}
+
+function loadSelectedPreset() {
+    const quickSelect = document.getElementById('presetQuickSelect');
+    if (!quickSelect) return;
+    const slot = parseInt(quickSelect.value, 10);
+    if (![1, 2, 3, 4, 5].includes(slot)) return;
+    loadPreset(slot);
 }
 
 function closePresetModal() {

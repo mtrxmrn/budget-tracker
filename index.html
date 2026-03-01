@@ -28,25 +28,13 @@
                 <button class="btn btn-secondary" onclick="showAllMonths()">Show All</button>
             </div>
 
-            <div class="control-row actions-row">
-                <button class="btn btn-success" onclick="exportToCSV()"><i class="fas fa-file-export"></i> Export CSV</button>
-                <input type="file" id="csvFileInput" accept=".csv" hidden onchange="importFromCSV(event)">
-                <button class="btn btn-warning" onclick="document.getElementById('csvFileInput').click()"><i class="fas fa-file-import"></i> Import CSV</button>
-                <button class="btn btn-orange" onclick="clearCategories()"><i class="fas fa-eraser"></i> Clear Categories</button>
-                <button class="btn btn-danger" onclick="clearAllData()"><i class="fas fa-trash"></i> Clear All</button>
-                <a class="btn btn-primary settings-shortcut" href="advisor-settings.html"><i class="fas fa-sliders-h"></i> Advisor Targets</a>
-            </div>
-
             <div class="control-row presets-row">
-                <span class="control-label">Presets</span>
+                <label for="presetQuickSelect" class="control-label">Preset</label>
                 <div class="preset-buttons">
-                    <button id="presetBtn1" onclick="loadPreset(1)" class="preset-btn">Preset 1</button>
-                    <button id="presetBtn2" onclick="loadPreset(2)" class="preset-btn">Preset 2</button>
-                    <button id="presetBtn3" onclick="loadPreset(3)" class="preset-btn">Preset 3</button>
-                    <button id="presetBtn4" onclick="loadPreset(4)" class="preset-btn">Preset 4</button>
-                    <button id="presetBtn5" onclick="loadPreset(5)" class="preset-btn">Preset 5</button>
-                    <button class="btn btn-primary" onclick="quickSaveCurrentPreset()"><i class="fas fa-save"></i> Save Preset</button>
+                    <select id="presetQuickSelect" class="preset-quick-select" onchange="setCurrentPresetSlot(this.value)"></select>
+                    <button class="btn btn-primary" onclick="loadSelectedPreset()"><i class="fas fa-play"></i> Load</button>
                     <button class="btn btn-info" onclick="openPresetManager()"><i class="fas fa-sliders-h"></i> Manage</button>
+                    <a class="btn btn-secondary settings-shortcut" href="advisor-settings.html"><i class="fas fa-bullseye"></i> Targets</a>
                 </div>
             </div>
 
@@ -205,6 +193,10 @@
                 </div>
             </section>
         </main>
+
+        <div class="table-footer-actions">
+            <button class="btn btn-primary" onclick="quickSaveCurrentPreset()"><i class="fas fa-save"></i> Save Preset</button>
+        </div>
     </div>
 
     <footer class="app-version">
