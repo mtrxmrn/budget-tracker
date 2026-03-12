@@ -1,10 +1,10 @@
-// Budget Tracker - Clean and Simple
+// Budget Tracker application state and helpers.
 
+// ----------------------------------
 // Global state
+// ----------------------------------
 let budgetData = { first: [], second: [] };
 let salaryData = { first: 0, second: 0 };
-let payrollBalanceData = { first: 0, second: 0 };
-let cashMoneyData = { first: 0, second: 0 };
 let previousBalanceData = { first: 0, second: 0 };
 let currentFilter = null;
 let presets = {};
@@ -35,6 +35,9 @@ const PRESET_AVG_NET_PAY_STORAGE_KEY = 'budgetTrackerPresetAverageNetPayPerCutof
 let allocationTargets = { ...DEFAULT_ALLOCATION_TARGETS };
 let categoryCaps = { ...DEFAULT_CATEGORY_CAPS };
 
+// ----------------------------------
+// Shared formatting and normalization
+// ----------------------------------
 function toPercentValue(value, fallback) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) return fallback;
@@ -185,12 +188,34 @@ function normalizeBudgetItem(item = {}) {
     return normalized;
 }
 
-function normalizeMonthPayload(rawPayload) {
+function normalizeMonthPayload(rawPayload, monthHint = null) {
     const rawData = rawPayload && rawPayload.data ? rawPayload.data : rawPayload;
-    return {
-        first: Array.isArray(rawData?.first) ? rawData.first.map(normalizeBudgetItem) : [],
-        second: Array.isArray(rawData?.second) ? rawData.second.map(normalizeBudgetItem) : []
+    const fallbackDate = monthHint ? `${monthHint}-01` : '';
+    const normalizeWithFallbackDate = (item = {}) => {
+        const normalized = normalizeBudgetItem(item);
+        if (!normalized.date && fallbackDate) {
+            normalized.date = fallbackDate;
+        }
+        return normalized;
     };
+
+    return {
+        first: Array.isArray(rawData?.first) ? rawData.first.map(normalizeWithFallbackDate) : [],
+        second: Array.isArray(rawData?.second) ? rawData.second.map(normalizeWithFallbackDate) : []
+    };
+}
+
+function getTrackerStorageKeys() {
+    return Object.keys(localStorage).filter(key => key && key.startsWith('budgetTracker'));
+}
+
+function clearTrackerStorage(keysToKeep = []) {
+    const keep = new Set(keysToKeep.filter(Boolean));
+    getTrackerStorageKeys().forEach(key => {
+        if (!keep.has(key)) {
+            localStorage.removeItem(key);
+        }
+    });
 }
 
 // Helper function to format date as "24-Thursday"
@@ -208,7 +233,9 @@ function formatDayWeekday(dateString) {
     }
 }
 
-// Initialize app
+// ----------------------------------
+// Application lifecycle
+// ----------------------------------
 document.addEventListener('DOMContentLoaded', function() {
     initializePresets();
     // Load settings first so currentFilter is restored before loading month-specific data
@@ -216,13 +243,12 @@ document.addEventListener('DOMContentLoaded', function() {
     loadAdvisorConfig();
     loadData();
     loadSalaries();
-    loadPayrollBalances();
-    loadCashMoney();
     initializeTables();
     setupEventHandlers();
     initializeExpenseDatePicker();
     initializeDarkMode();
 
+    // Keep the advisor panel in sync across tabs/windows.
     window.addEventListener('storage', function(event) {
         if (event.key !== ADVISOR_CONFIG_STORAGE_KEY) return;
         loadAdvisorConfig();
@@ -231,12 +257,11 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function initializeTables() {
-    
-    // Only add sample data if no saved data exists at all
+    const hasStoredMonthData = getAllMonthStorageKeys().length > 0;
     const hasExistingData = (budgetData.first && budgetData.first.length > 0) || 
                            (budgetData.second && budgetData.second.length > 0);
     
-    if (!hasExistingData) {
+    if (!hasExistingData && !hasStoredMonthData) {
         budgetData.first = [
             { id: generateId(), category: 'Groceries', date: '2025-07-01', budget: 500, type: 'essential', expenses: [
                 { description: 'Weekly shopping', date: '2025-07-20', amount: 120 },
@@ -263,6 +288,9 @@ function initializeTables() {
     initializeDragAndDrop();
 }
 
+// ----------------------------------
+// Date handling
+// ----------------------------------
 function formatDateMMDDYYYY(date) {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
@@ -363,6 +391,9 @@ function addSampleData() {
     ];
 }
 
+// ----------------------------------
+// Table rendering
+// ----------------------------------
 function renderBothTables() {
     renderTable('first');
     renderTable('second');
@@ -393,81 +424,88 @@ function renderTable(tableType) {
 
 function createTableRow(item, tableType) {
     const row = document.createElement('tr');
+    row.className = 'category-card';
     row.dataset.id = item.id;
 
-    const totalSpent = sumExpenses(item);
-    const variance = item.budget - totalSpent;
-    const budgetPercentage = item.budget > 0 ? (totalSpent / item.budget) * 100 : 0;
-    const isPaid = Boolean(item.paid);
+    const totalSpent   = sumExpenses(item);
+    const variance     = item.budget - totalSpent;
+    const budgetPct    = item.budget > 0 ? (totalSpent / item.budget) * 100 : 0;
+    const isPaid       = Boolean(item.paid);
     const resolvedType = CATEGORY_TYPES.includes(item.type) ? item.type : inferCategoryType(item.category);
-    const isAdvanced = Boolean(item.advancedSourceCutoff);
-    const advancedFromLabel = item.advancedSourceCutoff === 'first' ? '1st' : '2nd';
+    const isAdvanced   = Boolean(item.advancedSourceCutoff);
+    const advLabel     = item.advancedSourceCutoff === 'first' ? '1st' : '2nd';
+    const typeLabel    = formatCategoryTypeLabel(resolvedType);
 
-    // Determine styling based on budget percentage
-    let rowClass = '';
-    let spentClass = '';
+    // Status
+    let cardStatus  = '';
+    let spentCls    = '';
 
-    if (budgetPercentage <= 79) {
-        // 0-79%: Green (safe)
-        rowClass = 'budget-safe';
-        spentClass = 'spent-safe';
-    } else if (budgetPercentage >= 80 && budgetPercentage <= 99) {
-        // 80-99%: Orange (warning)
-        rowClass = 'budget-warning';
-        spentClass = 'spent-warning';
-    } else if (budgetPercentage === 100) {
-        // Exactly 100%: Yellow
-        rowClass = 'budget-exact';
-        spentClass = 'spent-exact';
-    } else {
-        // Over 100%: Red (over budget)
-        rowClass = 'budget-over';
-        spentClass = 'spent-over';
+    if (budgetPct > 0 && budgetPct < 80) {
+        cardStatus  = 'budget-safe';
+        spentCls    = 'spent-safe';
+    } else if (budgetPct >= 80 && budgetPct < 100) {
+        cardStatus  = 'budget-warning';
+        spentCls    = 'spent-warning';
+    } else if (Math.abs(budgetPct - 100) < 0.01) {
+        cardStatus  = 'budget-exact';
+        spentCls    = 'spent-exact';
+    } else if (budgetPct > 100) {
+        cardStatus  = 'budget-over';
+        spentCls    = 'spent-over';
     }
 
-    // Apply styling to the row
-    row.classList.add(rowClass);
-
-    // Create spent cell with conditional styling
-    const spentDisplay = `<span class="spent-amount ${spentClass}">${formatCurrency(totalSpent)}</span>`;
-    const varianceClass = variance >= 0 ? 'variance-positive' : 'variance-negative';
-    const varianceDisplay = `<span class="variance-pill ${varianceClass}">${variance >= 0 ? '+' : '-'}${formatCurrency(Math.abs(variance))}</span>`;
-    const typeLabel = formatCategoryTypeLabel(resolvedType);
-
+    if (cardStatus) row.classList.add(cardStatus);
     if (isAdvanced) row.classList.add('advanced-row');
 
+    const varSign   = variance >= 0 ? '+' : '\u2212';
+    const varianceText = `${varSign}${formatCurrency(Math.abs(variance))}`;
+    const paidClass = isPaid ? 'paid-toggle-btn unpaid-btn' : 'paid-toggle-btn';
+    const paidLabel = isPaid ? 'Unpaid' : 'Paid';
+
     row.innerHTML = `
-        <td class="col-order drag-handle">::</td>
-        <td class="col-category">
-            ${item.category}
-            <span class="category-type-chip">${typeLabel}</span>
-            ${isAdvanced ? `<span class="category-advanced-chip" title="Paid using ${advancedFromLabel} cut-off money">Advanced from ${advancedFromLabel}</span>` : ''}
+        <td class="col-h-drag"><span class="card-drag drag-handle">::</span></td>
+        <td class="col-h-name">
+            <span class="card-name" title="${item.category}">${item.category}</span>
         </td>
-        <td class="col-budget">${formatCurrency(item.budget)}</td>
-        <td class="col-spent spent-cell">
-            ${spentDisplay}
-            ${varianceDisplay}
-            ${isAdvanced ? '<span class="advanced-pill">Advanced</span>' : ''}
-            <button class="add-expense-btn" onclick="openExpenseModal('${item.id}', '${tableType}')" title="Open breakdown">+</button>
+        <td class="col-h-type">
+            <span class="type-chip ${resolvedType}">${typeLabel}</span>
+            <span class="card-advanced-slot">
+                ${isAdvanced ? `<span class="category-advanced-chip">Adv.${advLabel}</span>` : ''}
+            </span>
         </td>
-        <td class="col-action action-cell">
-            <div class="action-buttons">
+        <td class="col-h-budget"><span class="card-budget">${formatCurrency(item.budget)}</span></td>
+        <td class="col-h-spent">
+            <span class="card-spent-wrap">
+                <span class="card-spent ${spentCls}">${formatCurrency(totalSpent)}</span>
+                <span class="card-variance-info kpi-info" data-tip="Variance: ${varianceText}" tabindex="0">i</span>
+            </span>
+        </td>
+        <td class="col-h-actions">
+            <div class="card-actions">
                 <button class="action-btn edit-btn" onclick="editRow('${item.id}', '${tableType}')">Edit</button>
                 <div class="action-more-wrap">
-                    <button class="action-btn more-btn" type="button">More</button>
+                    <button class="action-btn more-btn" type="button" onclick="toggleMoreMenu(event, this)">&#8943;</button>
                     <div class="action-more-menu">
-                        <button class="action-btn paid-toggle-btn ${isPaid ? 'unpaid-btn' : ''}" onclick="markAsPaid('${item.id}', '${tableType}')">${isPaid ? 'Unpaid' : 'Paid'}</button>
+                        <button class="action-btn ${paidClass}" onclick="markAsPaid('${item.id}', '${tableType}')">${paidLabel}</button>
                         <button class="action-btn advance-btn" onclick="advancePayment('${item.id}', '${tableType}')">Advance</button>
-                        <button class="action-btn delete-btn" onclick="deleteRow('${item.id}', '${tableType}')">Del</button>
+                        <button class="action-btn delete-btn" onclick="deleteRow('${item.id}', '${tableType}')">Delete</button>
                     </div>
                 </div>
             </div>
         </td>
     `;
 
+    row.addEventListener('click', function(event) {
+        if (event.target.closest('.card-actions')) return;
+        if (event.target.closest('.card-variance-info')) return;
+        openExpenseModal(item.id, tableType);
+    });
+
     return row;
 }
+// ----------------------------------
 // Category management
+// ----------------------------------
 function addRow(tableType) {
     // Use filtered month if active, otherwise use today's date
     let defaultDate;
@@ -538,6 +576,9 @@ function deleteRow(id, tableType) {
     }
 }
 
+// ----------------------------------
+// Payment state and expense handling
+// ----------------------------------
 function getBudgetItemMonth(item) {
     if (item && item.date) return item.date.substring(0, 7);
     return currentFilter || getCurrentMonth();
@@ -687,7 +728,7 @@ function renderExpenseList(expenses) {
     const expenseList = document.getElementById('expenseList');
     
     if (expenses.length === 0) {
-        expenseList.innerHTML = '<p style="text-align: center; color: #666;">No expenses recorded yet.</p>';
+        expenseList.innerHTML = '<p class="expense-empty-state">No expenses recorded yet.</p>';
         return;
     }
     
@@ -695,7 +736,7 @@ function renderExpenseList(expenses) {
         <div class="expense-item">
             <div class="expense-details">
                 <span class="expense-description">${expense.description}</span>
-                ${expense.date ? `<span class="expense-date" style="color: #666; font-size: 12px;">${formatDayWeekday(expense.date)}</span>` : ''}
+                ${expense.date ? `<span class="expense-date">${formatDayWeekday(expense.date)}</span>` : ''}
             </div>
             <span class="expense-amount">${formatCurrency(expense.amount)}</span>
             <div class="expense-buttons">
@@ -834,7 +875,9 @@ function closeModal() {
     delete currentModal.editingExpenseIndex;
 }
 
-// Calculations
+// ----------------------------------
+// Calculations and dashboard updates
+// ----------------------------------
 function updateTotals(tableType, filteredData = null) {
     const data = filteredData || budgetData[tableType];
     const totalBudget = data.reduce((sum, item) => sum + item.budget, 0);
@@ -850,37 +893,23 @@ function updateTotals(tableType, filteredData = null) {
     const spentClasses = ['spent-safe', 'spent-warning', 'spent-exact', 'spent-over', 'spent-over-budget'];
     spentClasses.forEach(cls => spentElement.classList.remove(cls));
 
-    const rowClasses = ['budget-safe', 'budget-warning', 'budget-exact', 'budget-over', 'over-budget'];
-    rowClasses.forEach(cls => spentElement.parentElement.classList.remove(cls));
-
     let spentClass = '';
-    let rowClass = '';
 
-    if (totalPercentage <= 79) {
+    if (totalPercentage > 0 && totalPercentage < 80) {
         spentClass = 'spent-safe';
-        rowClass = 'budget-safe';
-    } else if (totalPercentage >= 80 && totalPercentage <= 99) {
+    } else if (totalPercentage >= 80 && totalPercentage < 100) {
         spentClass = 'spent-warning';
-        rowClass = 'budget-warning';
     } else if (Math.abs(totalPercentage - 100) < 0.01) {
         spentClass = 'spent-exact';
-        rowClass = 'budget-exact';
     } else if (totalPercentage > 100) {
         spentClass = 'spent-over';
-        rowClass = 'budget-over';
     }
 
-    if (spentClass) {
-        spentElement.classList.add(spentClass);
-        spentElement.parentElement.classList.add(rowClass);
-    }
+    if (spentClass) spentElement.classList.add(spentClass);
 
     spentElement.textContent = formatCurrency(totalSpent);
 
-    const salary = parseFloat(salaryData[tableType]) || 0;
-    const payrollBalance = parseFloat(payrollBalanceData[tableType]) || 0;
-    const cashMoney = parseFloat(cashMoneyData[tableType]) || 0;
-    const totalAvailable = salary + payrollBalance + cashMoney;
+    const totalAvailable = parseFloat(salaryData[tableType]) || 0;
 
     const totalAvailableElement = document.getElementById(tableType + 'TotalAvailable');
     if (totalAvailableElement) {
@@ -906,10 +935,7 @@ function getAllVisibleItems() {
 }
 
 function getTotalAvailableMoney() {
-    const totalSalary = (parseFloat(salaryData.first) || 0) + (parseFloat(salaryData.second) || 0);
-    const totalPayroll = (parseFloat(payrollBalanceData.first) || 0) + (parseFloat(payrollBalanceData.second) || 0);
-    const totalCash = (parseFloat(cashMoneyData.first) || 0) + (parseFloat(cashMoneyData.second) || 0);
-    return totalSalary + totalPayroll + totalCash;
+    return (parseFloat(salaryData.first) || 0) + (parseFloat(salaryData.second) || 0);
 }
 
 function getPreviousMonth(monthStr) {
@@ -935,14 +961,18 @@ function calculateMonthRollover(monthStr) {
         return 0;
     }
 
+    let salary = { first: 0, second: 0 };
     const salaryRaw = localStorage.getItem(`budgetTrackerSalary_${monthStr}`);
-    const payrollRaw = localStorage.getItem(`budgetTrackerPayrollBalance_${monthStr}`);
-    const cashRaw = localStorage.getItem(`budgetTrackerCashMoney_${monthStr}`);
-
-    const salary = salaryRaw ? JSON.parse(salaryRaw) : { first: 0, second: 0 };
-    const payroll = payrollRaw ? JSON.parse(payrollRaw) : { first: 0, second: 0 };
-    const cash = cashRaw ? JSON.parse(cashRaw) : { first: 0, second: 0 };
-    const available = (salary.first || 0) + (salary.second || 0) + (payroll.first || 0) + (payroll.second || 0) + (cash.first || 0) + (cash.second || 0);
+    if (salaryRaw) {
+        try {
+            const parsedSalary = JSON.parse(salaryRaw);
+            salary.first = Number(parsedSalary.first) || 0;
+            salary.second = Number(parsedSalary.second) || 0;
+        } catch {
+            salary = { first: 0, second: 0 };
+        }
+    }
+    const available = (salary.first || 0) + (salary.second || 0);
     const spent = ['first', 'second'].reduce((sum, tableType) => {
         return sum + monthData[tableType].reduce((tableSum, item) => {
             return tableSum + item.expenses.reduce((eSum, e) => eSum + (Number(e.amount) || 0), 0);
@@ -953,58 +983,113 @@ function calculateMonthRollover(monthStr) {
 }
 
 function updateFinancialDashboard() {
+    const prevMonth = getPreviousMonth(currentFilter || getCurrentMonth());
+    const rollover = prevMonth ? calculateMonthRollover(prevMonth) : 0;
+
+    const statsRolloverEl = document.getElementById('statsRollover');
+    if (statsRolloverEl) {
+        statsRolloverEl.textContent = formatCurrency(rollover);
+    }
+
     const panel = document.getElementById('financialDashboard');
     if (!panel) return;
 
-    const items = getAllVisibleItems();
-    const totalAvailable = getTotalAvailableMoney();
-    const totalSpent = items.reduce((sum, item) => sum + sumExpenses(item), 0);
-    const plannedTotal = items.reduce((sum, item) => sum + item.budget, 0);
+    const buildCutoffSummary = (tableType) => {
+        const items = getTableDataForView(tableType);
+        const available = parseFloat(salaryData[tableType]) || 0;
+        const spent = items.reduce((sum, item) => sum + sumExpenses(item), 0);
+        const planned = items.reduce((sum, item) => sum + item.budget, 0);
 
-    const byGroup = {
-        essentials: 0,
-        savings: 0,
-        investing: 0,
-        debt: 0,
-        sinking: 0,
-        lifestyle: 0
+        const byGroup = {
+            essentials: 0,
+            savings: 0,
+            investing: 0,
+            debt: 0,
+            sinking: 0,
+            lifestyle: 0
+        };
+
+        items.forEach(item => {
+            const group = mapTypeToAllocationGroup(item.type || inferCategoryType(item.category));
+            byGroup[group] += sumExpenses(item);
+        });
+
+        const savingsRate = available > 0 ? ((byGroup.savings + byGroup.investing) / available) * 100 : 0;
+        const essentialsRatio = available > 0 ? (byGroup.essentials / available) * 100 : 0;
+        const debtRatio = available > 0 ? (byGroup.debt / available) * 100 : 0;
+        const budgetAccuracy = planned > 0 ? Math.max(0, 100 - (Math.abs(planned - spent) / planned) * 100) : 0;
+        const lifestylePct = available > 0 ? (byGroup.lifestyle / available) * 100 : 0;
+
+        return {
+            tableType,
+            items,
+            available,
+            byGroup,
+            savingsRate,
+            essentialsRatio,
+            debtRatio,
+            budgetAccuracy,
+            lifestylePct
+        };
     };
 
-    items.forEach(item => {
-        const group = mapTypeToAllocationGroup(item.type || inferCategoryType(item.category));
-        const spent = sumExpenses(item);
-        byGroup[group] += spent;
-    });
-
-    const savingsRate = totalAvailable > 0 ? ((byGroup.savings + byGroup.investing) / totalAvailable) * 100 : 0;
-    const essentialsRatio = totalAvailable > 0 ? (byGroup.essentials / totalAvailable) * 100 : 0;
-    const debtRatio = totalAvailable > 0 ? (byGroup.debt / totalAvailable) * 100 : 0;
-    const budgetAccuracy = plannedTotal > 0 ? Math.max(0, 100 - (Math.abs(plannedTotal - totalSpent) / plannedTotal) * 100) : 0;
-
-    const prevMonth = getPreviousMonth(currentFilter || getCurrentMonth());
-    const rollover = prevMonth ? calculateMonthRollover(prevMonth) : 0;
+    const first = buildCutoffSummary('first');
+    const second = buildCutoffSummary('second');
+    const totalAvailable = first.available + second.available;
+    const combinedByGroup = {
+        essentials: first.byGroup.essentials + second.byGroup.essentials,
+        savings: first.byGroup.savings + second.byGroup.savings,
+        investing: first.byGroup.investing + second.byGroup.investing,
+        debt: first.byGroup.debt + second.byGroup.debt,
+        sinking: first.byGroup.sinking + second.byGroup.sinking,
+        lifestyle: first.byGroup.lifestyle + second.byGroup.lifestyle
+    };
 
     const setText = (id, value) => {
         const el = document.getElementById(id);
         if (el) el.textContent = value;
     };
 
-    setText('kpiSavingsRate', `${savingsRate.toFixed(1)}%`);
-    setText('kpiEssentialsRatio', `${essentialsRatio.toFixed(1)}%`);
-    setText('kpiDebtRatio', `${debtRatio.toFixed(1)}%`);
-    setText('kpiBudgetAccuracy', `${budgetAccuracy.toFixed(1)}%`);
+    const setKpi = (id, value, status) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = value;
+        el.className = 'kpi-value' + (status ? ` kpi-${status}` : '');
+    };
+
+    const kpiStatus = (metric, value, available) => {
+        if (!available) return '';
+        switch (metric) {
+            case 'savings':    return value >= 20 ? 'good' : value >= 10 ? 'warn' : 'bad';
+            case 'essentials': return value < 50  ? 'good' : value < categoryCaps.essentials ? 'warn' : 'bad';
+            case 'debt':       return value < 15  ? 'good' : value < categoryCaps.debt       ? 'warn' : 'bad';
+            case 'accuracy':   return value >= 85 ? 'good' : value >= 70                     ? 'warn' : 'bad';
+            default:           return '';
+        }
+    };
+
+    setKpi('kpiSavingsRateFirst',     `${first.savingsRate.toFixed(1)}%`,     kpiStatus('savings',    first.savingsRate,     first.available));
+    setKpi('kpiEssentialsRatioFirst', `${first.essentialsRatio.toFixed(1)}%`, kpiStatus('essentials', first.essentialsRatio, first.available));
+    setKpi('kpiDebtRatioFirst',       `${first.debtRatio.toFixed(1)}%`,       kpiStatus('debt',       first.debtRatio,       first.available));
+    setKpi('kpiBudgetAccuracyFirst',  `${first.budgetAccuracy.toFixed(1)}%`,  kpiStatus('accuracy',   first.budgetAccuracy,  first.available));
+
+    setKpi('kpiSavingsRateSecond',     `${second.savingsRate.toFixed(1)}%`,     kpiStatus('savings',    second.savingsRate,     second.available));
+    setKpi('kpiEssentialsRatioSecond', `${second.essentialsRatio.toFixed(1)}%`, kpiStatus('essentials', second.essentialsRatio, second.available));
+    setKpi('kpiDebtRatioSecond',       `${second.debtRatio.toFixed(1)}%`,       kpiStatus('debt',       second.debtRatio,       second.available));
+    setKpi('kpiBudgetAccuracySecond',  `${second.budgetAccuracy.toFixed(1)}%`,  kpiStatus('accuracy',   second.budgetAccuracy,  second.available));
+
     setText('kpiRollover', formatCurrency(rollover));
 
     const allocationSummary = document.getElementById('allocationSummary');
     if (allocationSummary) {
         const lines = Object.entries(allocationTargets).map(([key, target]) => {
-            const actualPct = totalAvailable > 0 ? (byGroup[key] / totalAvailable) * 100 : 0;
+            const actualPct = totalAvailable > 0 ? (combinedByGroup[key] / totalAvailable) * 100 : 0;
             const width = Math.min(100, Math.max(0, actualPct));
             return `
                 <div class="allocation-line">
-                    <span>${key.charAt(0).toUpperCase() + key.slice(1)} ${actualPct.toFixed(1)}% / ${target}%</span>
+                    <span>Combined ${key.charAt(0).toUpperCase() + key.slice(1)} ${actualPct.toFixed(1)}% / ${target}%</span>
                     <div class="allocation-bar"><div class="allocation-fill" style="width:${width}%"></div></div>
-                    <span>${CURRENCY_SYMBOL}${byGroup[key].toFixed(0)}</span>
+                    <span>${CURRENCY_SYMBOL}${combinedByGroup[key].toFixed(0)}</span>
                 </div>
             `;
         }).join('');
@@ -1012,33 +1097,62 @@ function updateFinancialDashboard() {
     }
 
     const alerts = [];
-    if (savingsRate < 20) {
+    if (first.savingsRate < 20) {
         alerts.push({
             type: 'warn',
-            text: 'Savings + investing is below 20% of available money.',
+            text: '1st cut-off: Savings + investing is below 20% of available money.',
             suggestion: 'Approach: Move 3-5% from lifestyle spending into savings first.'
         });
     }
-    if (essentialsRatio > categoryCaps.essentials) {
+    if (second.savingsRate < 20) {
         alerts.push({
             type: 'warn',
-            text: `Essentials exceeded cap (${categoryCaps.essentials}%).`,
+            text: '2nd cut-off: Savings + investing is below 20% of available money.',
+            suggestion: 'Approach: Move 3-5% from lifestyle spending into savings first.'
+        });
+    }
+
+    if (first.essentialsRatio > categoryCaps.essentials) {
+        alerts.push({
+            type: 'warn',
+            text: `1st cut-off: Essentials exceeded cap (${categoryCaps.essentials}%).`,
             suggestion: 'Approach: Review essential costs and cut/renegotiate one major cost.'
         });
     }
-    if (debtRatio > categoryCaps.debt) {
+    if (second.essentialsRatio > categoryCaps.essentials) {
         alerts.push({
             type: 'warn',
-            text: `Debt exceeded cap (${categoryCaps.debt}%).`,
+            text: `2nd cut-off: Essentials exceeded cap (${categoryCaps.essentials}%).`,
+            suggestion: 'Approach: Review essential costs and cut/renegotiate one major cost.'
+        });
+    }
+
+    if (first.debtRatio > categoryCaps.debt) {
+        alerts.push({
+            type: 'warn',
+            text: `1st cut-off: Debt exceeded cap (${categoryCaps.debt}%).`,
+            suggestion: 'Approach: Pause new installments and prioritize extra debt payoff.'
+        });
+    }
+    if (second.debtRatio > categoryCaps.debt) {
+        alerts.push({
+            type: 'warn',
+            text: `2nd cut-off: Debt exceeded cap (${categoryCaps.debt}%).`,
             suggestion: 'Approach: Pause new installments and prioritize extra debt payoff.'
         });
     }
 
-    const lifestylePct = totalAvailable > 0 ? (byGroup.lifestyle / totalAvailable) * 100 : 0;
-    if (lifestylePct > categoryCaps.lifestyle) {
+    if (first.lifestylePct > categoryCaps.lifestyle) {
         alerts.push({
             type: 'warn',
-            text: `Lifestyle exceeded cap (${categoryCaps.lifestyle}%).`,
+            text: `1st cut-off: Lifestyle exceeded cap (${categoryCaps.lifestyle}%).`,
+            suggestion: 'Approach: Set a weekly leisure cap and shift excess to sinking fund.'
+        });
+    }
+    if (second.lifestylePct > categoryCaps.lifestyle) {
+        alerts.push({
+            type: 'warn',
+            text: `2nd cut-off: Lifestyle exceeded cap (${categoryCaps.lifestyle}%).`,
             suggestion: 'Approach: Set a weekly leisure cap and shift excess to sinking fund.'
         });
     }
@@ -1064,41 +1178,57 @@ function updateFinancialDashboard() {
 
 function updateTotalSummary() {
     const totalAvailable = getTotalAvailableMoney();
-
-    const totalSpent = getAllVisibleItems().reduce((sum, item) => {
-        return sum + sumExpenses(item);
-    }, 0);
-
+    const totalSpent = getAllVisibleItems().reduce((sum, item) => sum + sumExpenses(item), 0);
     const totalSpare = totalAvailable - totalSpent;
 
-    const totalSalaryElement = document.getElementById('totalSalary');
-    const totalSpareElement = document.getElementById('totalSpare');
-
-    if (totalSalaryElement) {
-        totalSalaryElement.textContent = formatCurrency(totalAvailable);
+    const salEl   = document.getElementById('totalSalary');
+    const spareEl = document.getElementById('totalSpare');
+    if (salEl)   salEl.textContent   = formatCurrency(totalAvailable);
+    if (spareEl) {
+        spareEl.textContent = formatCurrency(totalSpare);
+        spareEl.style.color = totalSpare < 0 ? 'var(--danger)' : '';
     }
 
-    if (totalSpareElement) {
-        totalSpareElement.textContent = formatCurrency(totalSpare);
-        totalSpareElement.style.color = totalSpare < 0 ? '#dc3545' : '#007cba';
+    updateStatsStrip(totalAvailable, totalSpent, totalSpare);
+}
+
+function updateStatsStrip(totalAvailable, totalSpent, totalSpare) {
+    const pct    = totalAvailable > 0 ? Math.min(100, (totalSpent / totalAvailable) * 100) : 0;
+    const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+
+    setTxt('statsPeriod',    currentFilter || 'All Months');
+    setTxt('statsAvailable', formatCurrency(totalAvailable));
+    setTxt('statsSpent',     formatCurrency(totalSpent));
+    setTxt('statsPct',       pct.toFixed(0) + '%');
+
+    const spareEl = document.getElementById('statsSpare');
+    if (spareEl) {
+        spareEl.textContent = formatCurrency(totalSpare);
+        spareEl.style.color = totalSpare < 0 ? 'var(--danger)' : '';
     }
+
+    const fill = document.getElementById('statsBarFill');
+    if (fill) {
+        fill.style.width = pct + '%';
+        fill.className   = 'stats-bar-fill';
+        if (pct >= 100)     fill.classList.add('over');
+        else if (pct >= 80) fill.classList.add('warning');
+        else                fill.classList.add('safe');
+    }
+
 }
 function updateSalary(tableType) {
     const salaryInput = document.getElementById(tableType + 'Salary');
-    const payrollBalanceInput = document.getElementById(tableType + 'PayrollBalance');
-    const cashMoneyInput = document.getElementById(tableType + 'CashMoney');
     
     salaryData[tableType] = parseFloat(salaryInput.value) || 0;
-    payrollBalanceData[tableType] = parseFloat(payrollBalanceInput.value) || 0;
-    cashMoneyData[tableType] = parseFloat(cashMoneyInput.value) || 0;
     
     updateTotals(tableType);
     saveSalaries();
-    savePayrollBalances();
-    saveCashMoney();
 }
 
+// ----------------------------------
 // Drag and drop
+// ----------------------------------
 function initializeDragAndDrop() {
     new Sortable(document.getElementById('firstCutoffBody'), {
         animation: 150,
@@ -1123,16 +1253,41 @@ function reorderData(tableType, oldIndex, newIndex) {
     saveData();
 }
 
+// ----------------------------------
 // Event handlers
-function setupEventHandlers() {
-    // Removed click-outside-to-close functionality for ALL modals
-    // All modals must now be closed using the X button or Close button for better UX
-    window.onclick = function(event) {
-        // No modal closing on outside clicks - intentionally empty
+// ----------------------------------
+function toggleMoreMenu(event, btn) {
+    event.stopPropagation();
+    const menu = btn.nextElementSibling;
+    const isOpen = menu.classList.contains('open');
+    const closeAllMoreMenus = () => {
+        document.querySelectorAll('.action-more-menu.open').forEach(m => m.classList.remove('open'));
+        document.querySelectorAll('.category-card.menu-open').forEach(c => c.classList.remove('menu-open'));
     };
+
+    // Close all other open menus first
+    closeAllMoreMenus();
+
+    if (!isOpen) {
+        menu.classList.add('open');
+        const card = btn.closest('.category-card');
+        if (card) card.classList.add('menu-open');
+    }
 }
 
-// Storage functions with per-month data organization
+function setupEventHandlers() {
+    // Close more menus when clicking outside
+    document.addEventListener('click', function(event) {
+        if (!event.target.closest('.action-more-wrap')) {
+            document.querySelectorAll('.action-more-menu.open').forEach(m => m.classList.remove('open'));
+            document.querySelectorAll('.category-card.menu-open').forEach(c => c.classList.remove('menu-open'));
+        }
+    });
+}
+
+// ----------------------------------
+// Storage and filtering
+// ----------------------------------
 function getCurrentMonth() {
     const now = new Date();
     return now.toISOString().substring(0, 7); // YYYY-MM format
@@ -1193,6 +1348,14 @@ function saveData() {
             const storageKey = getStorageKey(month);
             localStorage.setItem(storageKey, JSON.stringify(dataByMonth[month]));
         });
+
+        // Remove stale month payloads so deleted months do not reappear on reload.
+        getAllMonthStorageKeys().forEach(key => {
+            const month = key.replace('budgetTracker_', '');
+            if (!dataByMonth[month]) {
+                localStorage.removeItem(key);
+            }
+        });
     } catch (error) {
         console.error('Error saving data:', error);
     }
@@ -1207,7 +1370,7 @@ function loadData() {
             const storageKey = getStorageKey(currentFilter);
             const saved = localStorage.getItem(storageKey);
             if (saved) {
-                const monthData = normalizeMonthPayload(JSON.parse(saved));
+                const monthData = normalizeMonthPayload(JSON.parse(saved), currentFilter);
                 budgetData.first = monthData.first || [];
                 budgetData.second = monthData.second || [];
             }
@@ -1219,7 +1382,8 @@ function loadData() {
                 const saved = localStorage.getItem(key);
                 if (saved) {
                     try {
-                        const monthData = normalizeMonthPayload(JSON.parse(saved));
+                        const month = key.replace('budgetTracker_', '');
+                        const monthData = normalizeMonthPayload(JSON.parse(saved), month);
                         budgetData.first = budgetData.first.concat(monthData.first || []);
                         budgetData.second = budgetData.second.concat(monthData.second || []);
                     } catch (e) {
@@ -1269,7 +1433,7 @@ function loadSalaries() {
             document.getElementById('firstSalary').value = salaryData.first || '';
             document.getElementById('secondSalary').value = salaryData.second || '';
         } else {
-            // No saved salaries for this month — reset inputs
+            // No saved salaries for this month - reset inputs.
             salaryData.first = 0;
             salaryData.second = 0;
             document.getElementById('firstSalary').value = '';
@@ -1280,98 +1444,6 @@ function loadSalaries() {
         updateTotals('second');
     } catch (error) {
         console.error('Error loading salaries:', error);
-    }
-}
-
-function savePayrollBalances() {
-    try {
-        const month = currentFilter || getCurrentMonth();
-        const key = `budgetTrackerPayrollBalance_${month}`;
-        localStorage.setItem(key, JSON.stringify({ first: payrollBalanceData.first, second: payrollBalanceData.second }));
-    } catch (error) {
-        console.error('Error saving payroll balances:', error);
-    }
-}
-
-function loadPayrollBalances() {
-    try {
-        if (!currentFilter) {
-            const aggregated = sumFinancialByPrefix('budgetTrackerPayrollBalance');
-            payrollBalanceData.first = aggregated.first;
-            payrollBalanceData.second = aggregated.second;
-            document.getElementById('firstPayrollBalance').value = payrollBalanceData.first || '';
-            document.getElementById('secondPayrollBalance').value = payrollBalanceData.second || '';
-            updateTotals('first');
-            updateTotals('second');
-            return;
-        }
-
-        const key = `budgetTrackerPayrollBalance_${currentFilter}`;
-        const saved = localStorage.getItem(key);
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            payrollBalanceData.first = parsed.first || 0;
-            payrollBalanceData.second = parsed.second || 0;
-
-            document.getElementById('firstPayrollBalance').value = payrollBalanceData.first || '';
-            document.getElementById('secondPayrollBalance').value = payrollBalanceData.second || '';
-        } else {
-            payrollBalanceData.first = 0;
-            payrollBalanceData.second = 0;
-            document.getElementById('firstPayrollBalance').value = '';
-            document.getElementById('secondPayrollBalance').value = '';
-        }
-
-        updateTotals('first');
-        updateTotals('second');
-    } catch (error) {
-        console.error('Error loading payroll balances:', error);
-    }
-}
-
-function saveCashMoney() {
-    try {
-        const month = currentFilter || getCurrentMonth();
-        const key = `budgetTrackerCashMoney_${month}`;
-        localStorage.setItem(key, JSON.stringify({ first: cashMoneyData.first, second: cashMoneyData.second }));
-    } catch (error) {
-        console.error('Error saving cash money:', error);
-    }
-}
-
-function loadCashMoney() {
-    try {
-        if (!currentFilter) {
-            const aggregated = sumFinancialByPrefix('budgetTrackerCashMoney');
-            cashMoneyData.first = aggregated.first;
-            cashMoneyData.second = aggregated.second;
-            document.getElementById('firstCashMoney').value = cashMoneyData.first || '';
-            document.getElementById('secondCashMoney').value = cashMoneyData.second || '';
-            updateTotals('first');
-            updateTotals('second');
-            return;
-        }
-
-        const key = `budgetTrackerCashMoney_${currentFilter}`;
-        const saved = localStorage.getItem(key);
-        if (saved) {
-            const parsed = JSON.parse(saved);
-            cashMoneyData.first = parsed.first || 0;
-            cashMoneyData.second = parsed.second || 0;
-
-            document.getElementById('firstCashMoney').value = cashMoneyData.first || '';
-            document.getElementById('secondCashMoney').value = cashMoneyData.second || '';
-        } else {
-            cashMoneyData.first = 0;
-            cashMoneyData.second = 0;
-            document.getElementById('firstCashMoney').value = '';
-            document.getElementById('secondCashMoney').value = '';
-        }
-
-        updateTotals('first');
-        updateTotals('second');
-    } catch (error) {
-        console.error('Error loading cash money:', error);
     }
 }
 
@@ -1410,8 +1482,6 @@ function filterByMonth() {
     currentFilter = selectedMonth;
     loadData();
     loadSalaries();
-    loadPayrollBalances();
-    loadCashMoney();
     renderBothTables();
     saveSettings();
 }
@@ -1425,12 +1495,13 @@ function showAllMonths() {
 
     loadData();
     loadSalaries();
-    loadPayrollBalances();
-    loadCashMoney();
     renderBothTables();
     saveSettings();
 }
 
+// ----------------------------------
+// CSV import and export
+// ----------------------------------
 function exportToCSV() {
     const csvData = [];
     csvData.push(['Table', 'Category', 'Type', 'Date', 'Budget', 'Expense Description', 'Expense Date', 'Expense Amount']);
@@ -1567,10 +1638,12 @@ function importFromCSV(event) {
     event.target.value = '';
 }
 
+// ----------------------------------
+// Preset management
+// ----------------------------------
 function initializePresets() {
     const saved = localStorage.getItem('budgetTrackerPresets');
     if (saved) {
-        const parsed = JSON.parse(saved);
         const normalizePresetItems = (items = []) => {
             if (!Array.isArray(items)) return [];
             return items.map(item => {
@@ -1580,13 +1653,26 @@ function initializePresets() {
                 return { category, budget, type };
             });
         };
-        presets = {
-            1: { name: parsed?.[1]?.name || 'Preset 1', first: normalizePresetItems(parsed?.[1]?.first), second: normalizePresetItems(parsed?.[1]?.second) },
-            2: { name: parsed?.[2]?.name || 'Preset 2', first: normalizePresetItems(parsed?.[2]?.first), second: normalizePresetItems(parsed?.[2]?.second) },
-            3: { name: parsed?.[3]?.name || 'Preset 3', first: normalizePresetItems(parsed?.[3]?.first), second: normalizePresetItems(parsed?.[3]?.second) },
-            4: { name: parsed?.[4]?.name || 'Preset 4', first: normalizePresetItems(parsed?.[4]?.first), second: normalizePresetItems(parsed?.[4]?.second) },
-            5: { name: parsed?.[5]?.name || 'Preset 5', first: normalizePresetItems(parsed?.[5]?.first), second: normalizePresetItems(parsed?.[5]?.second) }
-        };
+        try {
+            const parsed = JSON.parse(saved);
+            presets = {
+                1: { name: parsed?.[1]?.name || 'Preset 1', first: normalizePresetItems(parsed?.[1]?.first), second: normalizePresetItems(parsed?.[1]?.second) },
+                2: { name: parsed?.[2]?.name || 'Preset 2', first: normalizePresetItems(parsed?.[2]?.first), second: normalizePresetItems(parsed?.[2]?.second) },
+                3: { name: parsed?.[3]?.name || 'Preset 3', first: normalizePresetItems(parsed?.[3]?.first), second: normalizePresetItems(parsed?.[3]?.second) },
+                4: { name: parsed?.[4]?.name || 'Preset 4', first: normalizePresetItems(parsed?.[4]?.first), second: normalizePresetItems(parsed?.[4]?.second) },
+                5: { name: parsed?.[5]?.name || 'Preset 5', first: normalizePresetItems(parsed?.[5]?.first), second: normalizePresetItems(parsed?.[5]?.second) }
+            };
+        } catch (error) {
+            console.error('Error loading presets:', error);
+            presets = {
+                1: { name: "Essential Budget", first: [{ category: 'Groceries', budget: 8000, type: 'essential' }, { category: 'Transportation', budget: 3000, type: 'essential' }], second: [{ category: 'Entertainment', budget: 3000, type: 'lifestyle' }] },
+                2: { name: "Student Budget", first: [{ category: 'Food', budget: 5000, type: 'essential' }, { category: 'Transportation', budget: 2000, type: 'essential' }], second: [{ category: 'Entertainment', budget: 1500, type: 'lifestyle' }] },
+                3: { name: "Family Budget", first: [{ category: 'Groceries', budget: 12000, type: 'essential' }, { category: 'Utilities', budget: 4000, type: 'essential' }], second: [{ category: 'Kids Activities', budget: 3000, type: 'lifestyle' }] },
+                4: { name: "Minimalist Budget", first: [{ category: 'Food', budget: 6000, type: 'essential' }, { category: 'Rent', budget: 12000, type: 'essential' }], second: [{ category: 'Savings', budget: 15000, type: 'savings' }] },
+                5: { name: "Custom Preset", first: [{ category: 'Category 1', budget: 1000, type: 'essential' }], second: [{ category: 'Category A', budget: 1000, type: 'essential' }] }
+            };
+            savePresets();
+        }
     } else {
         presets = {
             1: { name: "Essential Budget", first: [{ category: 'Groceries', budget: 8000, type: 'essential' }, { category: 'Transportation', budget: 3000, type: 'essential' }], second: [{ category: 'Entertainment', budget: 3000, type: 'lifestyle' }] },
@@ -1640,13 +1726,7 @@ function loadPreset(presetNumber) {
 }
 
 function openPresetManager() {
-    currentEditingPreset = presets[currentPresetSlot] ? currentPresetSlot : 1;
-    document.getElementById('presetSelect').value = String(currentEditingPreset);
-    loadPresetAverageNetPayField();
-    bindPresetChartEvents();
-    initializePresetDragAndDrop();
-    loadPresetForEditing();
-    document.getElementById('presetModal').style.display = 'block';
+    window.location.href = 'manage-presets.html';
 }
 
 function initializePresetDragAndDrop() {
@@ -2044,6 +2124,9 @@ function closePresetModal() {
     document.getElementById('presetModal').style.display = 'none';
 }
 
+// ----------------------------------
+// Data reset utilities
+// ----------------------------------
 function clearCategories() {
     if (confirm('Are you sure you want to clear all categories? This will remove all categories and their expenses but keep salary data.')) {
         // Clear category data for current filter or all data
@@ -2073,29 +2156,11 @@ function clearAllData() {
     if (confirm('Are you sure you want to clear ALL data? This cannot be undone!')) {
         budgetData = { first: [], second: [] };
         salaryData = { first: 0, second: 0 };
-        payrollBalanceData = { first: 0, second: 0 };
-        cashMoneyData = { first: 0, second: 0 };
-        
-        // Clear localStorage - remove all budget tracker related keys
-        const keysToRemove = [];
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (!key) continue;
-            // Remove any budget tracker month keys and legacy/global keys
-            if (key.startsWith('budgetTracker_') || key.startsWith('budgetTrackerSalary_') || key === 'budgetTrackerSalary' || key.startsWith('budgetTrackerPayrollBalance_') || key === 'budgetTrackerPayrollBalance' || key.startsWith('budgetTrackerCashMoney_') || key === 'budgetTrackerCashMoney' || key === 'budgetTrackerSettings' || key === 'budgetTrackerPresets') {
-                keysToRemove.push(key);
-            }
-        }
-        
-        keysToRemove.forEach(key => localStorage.removeItem(key));
+        clearTrackerStorage();
         
         // Reset UI
         document.getElementById('firstSalary').value = '';
         document.getElementById('secondSalary').value = '';
-        document.getElementById('firstPayrollBalance').value = '';
-        document.getElementById('secondPayrollBalance').value = '';
-        document.getElementById('firstCashMoney').value = '';
-        document.getElementById('secondCashMoney').value = '';
         currentFilter = null;
         document.getElementById('monthFilter').value = '';
         
@@ -2104,7 +2169,9 @@ function clearAllData() {
     }
 }
 
-// Dark Mode Functionality
+// ----------------------------------
+// Theme
+// ----------------------------------
 function initializeDarkMode() {
     const isDarkMode = localStorage.getItem('darkMode') === 'true';
     
@@ -2132,7 +2199,7 @@ function enableDarkMode() {
     
     body.classList.add('dark-mode');
     if (toggleIcon) {
-        toggleIcon.textContent = '☀️'; // Sun icon for light mode toggle
+        toggleIcon.textContent = '\u2600\uFE0F';
     }
     
     localStorage.setItem('darkMode', 'true');
@@ -2141,15 +2208,76 @@ function enableDarkMode() {
 function disableDarkMode() {
     const body = document.body;
     const toggleIcon = document.querySelector('.toggle-icon');
-    
+
     body.classList.remove('dark-mode');
     if (toggleIcon) {
-        toggleIcon.textContent = '🌙'; // Moon icon for dark mode toggle
+        toggleIcon.textContent = '\uD83C\uDF19';
     }
-    
+
     localStorage.setItem('darkMode', 'false');
 }
 
+// ----------------------------------
+// Expense reset
+// ----------------------------------
+function resetBreakdown() {
+    if (!confirm('Clear all expenses for this category? This cannot be undone.')) return;
+    const item = budgetData[currentModal.expenseTable].find(item => item.id === currentModal.expenseRow);
+    if (!item) return;
+    item.expenses = [];
+    item.paid = false;
+    item.paidAt = '';
+    delete item.prePaidExpenses;
+    renderExpenseList(item.expenses);
+    renderTable(currentModal.expenseTable);
+    saveData();
+}
+
+// ----------------------------------
+// JSON Backup / Restore
+// ----------------------------------
+function exportJSON() {
+    const backup = {};
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('budgetTracker')) {
+            backup[key] = localStorage.getItem(key);
+        }
+    }
+    const json = JSON.stringify(backup, null, 2);
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `budget-backup-${new Date().toISOString().split('T')[0]}.json`;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+function importJSON(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = JSON.parse(e.target.result);
+            if (typeof data !== 'object' || data === null) throw new Error('Invalid format');
+            if (!confirm('Restore backup? All current data will be replaced.')) return;
+            clearTrackerStorage();
+            Object.entries(data).forEach(([key, value]) => {
+                if (key.startsWith('budgetTracker')) {
+                    localStorage.setItem(key, value);
+                }
+            });
+            location.reload();
+        } catch (err) {
+            alert('Could not read backup file. Make sure it is a valid Budget Tracker JSON export.');
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+}
 
 
 

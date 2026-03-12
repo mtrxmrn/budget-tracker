@@ -3,353 +3,299 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Budget Tracker Pro</title>
+    <title>Budget Tracker</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litepicker/dist/css/litepicker.css">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 </head>
-<body>
-    <div class="app-shell">
-        <header class="topbar">
-            <div class="topbar-title">
-                <h1>Budget Tracker</h1>
-                <p>Personal finance cockpit for local-first monthly planning.</p>
+<body class="page-tracker">
+
+<!-- ================================================================
+     TOPBAR
+     ================================================================ -->
+<header class="topbar">
+    <div class="topbar-brand">
+        <h1>Budget Tracker</h1>
+        <span class="version">v4.5</span>
+    </div>
+
+    <div class="topbar-sep"></div>
+
+    <!-- Month filter -->
+    <div class="topbar-group">
+        <label for="monthFilter">Month</label>
+        <input type="month" id="monthFilter" onchange="filterByMonth()">
+        <button class="btn btn-secondary" type="button" onclick="showAllMonths()">All</button>
+    </div>
+
+    <div class="topbar-sep"></div>
+
+    <!-- Preset -->
+    <div class="topbar-group">
+        <label for="presetQuickSelect">Preset</label>
+        <select id="presetQuickSelect" class="preset-quick-select" onchange="setCurrentPresetSlot(this.value)"></select>
+        <button class="btn btn-secondary" type="button" onclick="loadSelectedPreset()"><i class="fas fa-play"></i> Load</button>
+        <a class="btn btn-secondary" href="manage-presets.html"><i class="fas fa-sliders-h"></i> Manage</a>
+    </div>
+
+    <div class="topbar-sep"></div>
+
+    <!-- Quick save -->
+    <div class="topbar-group">
+        <button class="btn btn-secondary" type="button" onclick="quickSaveCurrentPreset()"><i class="fas fa-save"></i> Save Preset</button>
+    </div>
+
+    <div class="topbar-push"></div>
+
+    <!-- Right controls -->
+    <div class="topbar-group">
+        <a class="btn btn-secondary" href="advisor-settings.html"><i class="fas fa-bullseye"></i> Targets</a>
+        <button class="btn btn-secondary" type="button" onclick="exportJSON()" title="Export full JSON backup">
+            <i class="fas fa-download"></i> Backup
+        </button>
+        <label class="btn btn-secondary" style="cursor:pointer;margin:0;" title="Restore from JSON backup">
+            <i class="fas fa-upload"></i> Restore
+            <input type="file" accept=".json" onchange="importJSON(event)" style="display:none;">
+        </label>
+        <button class="btn btn-secondary" type="button" onclick="exportToCSV()" title="Export CSV">
+            <i class="fas fa-file-csv"></i>
+        </button>
+    </div>
+
+    <div class="topbar-sep"></div>
+
+    <button id="darkModeToggle" class="dark-mode-toggle" type="button" onclick="toggleDarkMode()" aria-label="Toggle dark mode">
+        <span class="toggle-icon">&#127769;</span>
+    </button>
+</header>
+
+<!-- ================================================================
+     STATS STRIP
+     ================================================================ -->
+<div class="stats-strip" role="status" aria-label="Monthly overview">
+    <div class="stat-cell">
+        <div class="stat-label">Period</div>
+        <div class="stat-value" id="statsPeriod">All</div>
+    </div>
+    <div class="stat-cell">
+        <div class="stat-label">Net Available</div>
+        <div class="stat-value" id="statsAvailable">&#8369;0.00</div>
+    </div>
+    <div class="stat-cell stat-progress">
+        <div class="stat-progress-head">
+            <span class="stat-label">Spent</span>
+            <span class="stat-progress-pct" id="statsPct">0%</span>
+        </div>
+        <div class="stats-bar">
+            <div class="stats-bar-fill safe" id="statsBarFill" style="width:0%"></div>
+        </div>
+    </div>
+    <div class="stat-cell">
+        <div class="stat-label">Total Spent</div>
+        <div class="stat-value" id="statsSpent">&#8369;0.00</div>
+    </div>
+    <div class="stat-cell">
+        <div class="stat-label">Spare</div>
+        <div class="stat-value" id="statsSpare">&#8369;0.00</div>
+    </div>
+    <div class="stat-cell">
+        <div class="stat-label">Rollover</div>
+        <div class="stat-value" id="statsRollover">&#8369;0.00</div>
+    </div>
+</div>
+
+<!-- ================================================================
+     WORKSPACE
+     ================================================================ -->
+<div class="workspace">
+
+    <!-- ---- 1st Cut-off ---- -->
+    <section class="cutoff-panel" aria-labelledby="firstCutoffTitle">
+        <div class="panel-header">
+            <div class="panel-title" id="firstCutoffTitle">1st Cut-off</div>
+            <div class="panel-inputs">
+                <div class="input-group">
+                    <label for="firstSalary">
+                        Net Pay
+                        <span class="kpi-info" data-tip="Take-home pay after tax. The amount that actually enters your account.">i</span>
+                    </label>
+                    <input type="number" id="firstSalary" class="netpay-input" placeholder="0.00" step="0.01" onchange="updateSalary('first')">
+                </div>
+                <div class="input-group">
+                    <label>Available</label>
+                    <span id="firstTotalAvailable" class="avail-val">&#8369;0.00</span>
+                </div>
             </div>
-            <button id="darkModeToggle" class="dark-mode-toggle" onclick="toggleDarkMode()" aria-label="Toggle dark mode">
-                <span class="toggle-icon">??</span>
+        </div>
+
+        <div class="category-table-wrap">
+            <table class="category-table">
+                <thead>
+                    <tr>
+                        <th class="col-h col-h-drag"></th>
+                        <th class="col-h col-h-name">Category</th>
+                        <th class="col-h col-h-type">Type</th>
+                        <th class="col-h col-h-budget">Budget</th>
+                        <th class="col-h col-h-spent">Spent</th>
+                        <th class="col-h col-h-actions">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="firstCutoffBody" class="category-tbody"></tbody>
+            </table>
+        </div>
+
+        <div class="panel-footer">
+            <div class="panel-totals">
+                <div class="total-block">
+                    <div class="total-block-label">Budgeted</div>
+                    <div class="total-block-val" id="firstTotalBudget">&#8369;0.00</div>
+                </div>
+                <div class="total-block">
+                    <div class="total-block-label">Spent</div>
+                    <div class="total-block-val" id="firstTotalSpent">&#8369;0.00</div>
+                </div>
+                <div class="total-block">
+                    <div class="total-block-label">Remaining</div>
+                    <div class="total-block-val remaining" id="firstSalaryRemaining">&#8369;0.00</div>
+                </div>
+            </div>
+            <button class="add-row-btn" type="button" onclick="addRow('first')">
+                <i class="fas fa-plus" style="font-size:10px;"></i> Add Category
             </button>
-        </header>
-
-        <section class="control-panel">
-            <div class="control-row">
-                <label for="monthFilter">Month</label>
-                <input type="month" id="monthFilter" onchange="filterByMonth()">
-                <button class="btn btn-secondary" onclick="showAllMonths()">Show All</button>
-            </div>
-
-            <div class="control-row presets-row">
-                <label for="presetQuickSelect" class="control-label">Preset</label>
-                <div class="preset-buttons">
-                    <select id="presetQuickSelect" class="preset-quick-select" onchange="setCurrentPresetSlot(this.value)"></select>
-                    <button class="btn btn-primary" onclick="loadSelectedPreset()"><i class="fas fa-play"></i> Load</button>
-                    <button class="btn btn-info" onclick="openPresetManager()"><i class="fas fa-sliders-h"></i> Manage</button>
-                    <a class="btn btn-secondary settings-shortcut" href="advisor-settings.html"><i class="fas fa-bullseye"></i> Targets</a>
-                </div>
-            </div>
-
-            <div class="summary-grid">
-                <div class="summary-card income-card">
-                    <span>Total Available</span>
-                    <strong id="totalSalary">?0.00</strong>
-                </div>
-                <div class="summary-card spare-card">
-                    <span>Total Spare</span>
-                    <strong id="totalSpare">?0.00</strong>
-                </div>
-            </div>
-
-            <div id="financialDashboard" class="financial-dashboard">
-                <h3>Financial Advisor Summary</h3>
-                <div class="financial-kpi-grid">
-                    <div class="financial-kpi-card">
-                        <span class="kpi-label">Savings Rate <span class="kpi-info" data-tip="How much of total available money goes to Savings + Investing. Example: available 50,000 and saved/invested 10,000 = 20%.">i</span></span>
-                        <span id="kpiSavingsRate" class="kpi-value">0%</span>
-                    </div>
-                    <div class="financial-kpi-card">
-                        <span class="kpi-label">Essentials Ratio <span class="kpi-info" data-tip="Percent of total available spent on essentials categories. Example: rent, groceries, utilities.">i</span></span>
-                        <span id="kpiEssentialsRatio" class="kpi-value">0%</span>
-                    </div>
-                    <div class="financial-kpi-card">
-                        <span class="kpi-label">Debt Ratio <span class="kpi-info" data-tip="Percent of total available used for debt payments. Example: loans and credit card dues.">i</span></span>
-                        <span id="kpiDebtRatio" class="kpi-value">0%</span>
-                    </div>
-                    <div class="financial-kpi-card">
-                        <span class="kpi-label">Budget Accuracy <span class="kpi-info" data-tip="How close actual spending is to your planned budget. Closer spend-to-plan means higher accuracy.">i</span></span>
-                        <span id="kpiBudgetAccuracy" class="kpi-value">0%</span>
-                    </div>
-                    <div class="financial-kpi-card">
-                        <span class="kpi-label">Rollover (Prev Month) <span class="kpi-info" data-tip="Previous month remaining money after spending. Positive = surplus carried forward; negative = deficit.">i</span></span>
-                        <span id="kpiRollover" class="kpi-value">?0.00</span>
-                    </div>
-                </div>
-                <div id="allocationSummary" class="allocation-summary"></div>
-                <div id="financialAlerts" class="financial-alerts"></div>
-            </div>
-        </section>
-
-        <main class="tables-flex">
-            <section class="table-section">
-                <div class="table-header-flex">
-                    <div class="header-title">
-                        <h2>1st Cut-off</h2>
-                    </div>
-                    <div class="balance-grid">
-                        <div class="balance-row">
-                            <label class="salary-label">Net Pay <span class="kpi-info" data-tip="Your take-home pay after tax and deductions. Use the amount that actually enters your account.">i</span> <input type="number" id="firstSalary" class="salary-input" placeholder="0.00" step="0.01" onchange="updateSalary('first')"></label>
-                            <label>Payroll Balance <span class="kpi-info" data-tip="Unpaid/remaining payroll amount you can still use this cycle. Add only confirmed amount.">i</span> <input type="number" id="firstPayrollBalance" class="salary-input" placeholder="0.00" step="0.01" onchange="updateSalary('first')"></label>
-                        </div>
-                        <div class="balance-row">
-                            <label class="salary-label">Cash Money <span class="kpi-info" data-tip="Actual cash on hand allocated for this budget cycle (wallet, envelope, petty cash).">i</span> <input type="number" id="firstCashMoney" class="salary-input" placeholder="0.00" step="0.01" onchange="updateSalary('first')"></label>
-                            <label class="salary-label total-available-label">Total Available <span class="kpi-info" data-tip="Sum of Net Pay + Payroll Balance + Cash Money for this cut-off.">i</span> <span id="firstTotalAvailable" class="total-available-display">?0.00</span></label>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="table-container">
-                    <table id="firstCutoffTable" class="budget-table">
-                        <colgroup>
-                            <col class="col-order">
-                            <col class="col-category">
-                            <col class="col-budget">
-                            <col class="col-spent">
-                            <col class="col-action">
-                        </colgroup>
-                        <thead>
-                            <tr>
-                                <th class="col-order">Order</th>
-                                <th class="col-category">Category</th>
-                                <th class="col-budget">Budget</th>
-                                <th class="col-spent">Spent</th>
-                                <th class="col-action">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="firstCutoffBody"></tbody>
-                        <tfoot>
-                            <tr class="totals-row">
-                                <td><strong>Total</strong></td>
-                                <td></td>
-                                <td class="total-budget" id="firstTotalBudget">?0.00</td>
-                                <td class="total-spent" id="firstTotalSpent">?0.00</td>
-                                <td></td>
-                            </tr>
-                            <tr class="remaining-row">
-                                <td colspan="4"><strong>Remaining (Total Available - Total Spent)</strong></td>
-                                <td class="remaining" id="firstSalaryRemaining">?0.00</td>
-                            </tr>
-                        </tfoot>
-                    </table>
-
-                    <button class="add-row-btn" onclick="addRow('first')">
-                        <i class="fas fa-plus"></i> Add Category
-                    </button>
-                </div>
-            </section>
-
-            <section class="table-section">
-                <div class="table-header-flex">
-                    <div class="header-title">
-                        <h2>2nd Cut-off</h2>
-                    </div>
-                    <div class="balance-grid">
-                        <div class="balance-row">
-                            <label class="salary-label">Net Pay <span class="kpi-info" data-tip="Your take-home pay after tax and deductions. Use the amount that actually enters your account.">i</span> <input type="number" id="secondSalary" class="salary-input" placeholder="0.00" step="0.01" onchange="updateSalary('second')"></label>
-                            <label>Payroll Balance <span class="kpi-info" data-tip="Unpaid/remaining payroll amount you can still use this cycle. Add only confirmed amount.">i</span> <input type="number" id="secondPayrollBalance" class="salary-input" placeholder="0.00" step="0.01" onchange="updateSalary('second')"></label>
-                        </div>
-                        <div class="balance-row">
-                            <label class="salary-label">Cash Money <span class="kpi-info" data-tip="Actual cash on hand allocated for this budget cycle (wallet, envelope, petty cash).">i</span> <input type="number" id="secondCashMoney" class="salary-input" placeholder="0.00" step="0.01" onchange="updateSalary('second')"></label>
-                            <label class="salary-label total-available-label">Total Available <span class="kpi-info" data-tip="Sum of Net Pay + Payroll Balance + Cash Money for this cut-off.">i</span> <span id="secondTotalAvailable" class="total-available-display">?0.00</span></label>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="table-container">
-                    <table id="secondCutoffTable" class="budget-table">
-                        <colgroup>
-                            <col class="col-order">
-                            <col class="col-category">
-                            <col class="col-budget">
-                            <col class="col-spent">
-                            <col class="col-action">
-                        </colgroup>
-                        <thead>
-                            <tr>
-                                <th class="col-order">Order</th>
-                                <th class="col-category">Category</th>
-                                <th class="col-budget">Budget</th>
-                                <th class="col-spent">Spent</th>
-                                <th class="col-action">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="secondCutoffBody"></tbody>
-                        <tfoot>
-                            <tr class="totals-row">
-                                <td><strong>Total</strong></td>
-                                <td></td>
-                                <td class="total-budget" id="secondTotalBudget">?0.00</td>
-                                <td class="total-spent" id="secondTotalSpent">?0.00</td>
-                                <td></td>
-                            </tr>
-                            <tr class="remaining-row">
-                                <td colspan="4"><strong>Remaining (Total Available - Total Spent)</strong></td>
-                                <td class="remaining" id="secondSalaryRemaining">?0.00</td>
-                            </tr>
-                        </tfoot>
-                    </table>
-
-                    <button class="add-row-btn" onclick="addRow('second')">
-                        <i class="fas fa-plus"></i> Add Category
-                    </button>
-                </div>
-            </section>
-        </main>
-
-        <div class="table-footer-actions">
-            <button class="btn btn-primary" onclick="quickSaveCurrentPreset()"><i class="fas fa-save"></i> Save Preset</button>
         </div>
-    </div>
+    </section>
 
-    <footer class="app-version">
-        Budget Tracker Pro • Version 4.3
-    </footer>
-
-    <div id="expenseModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="modalTitle">Expense Breakdown</h3>
-                <span class="close" onclick="closeModal()">&times;</span>
-            </div>
-            <div class="modal-body">
-                <div id="expenseList"></div>
-                <div class="add-expense-form">
-                    <h4>Add New Expense</h4>
-                    <input type="text" id="expenseDescription" placeholder="Description">
-                    <input type="text" id="expenseDate" class="expense-date-input" placeholder="Select date" autocomplete="off">
-                    <input type="number" id="expenseAmount" placeholder="Amount" step="0.01">
-                    <button onclick="addExpense()"><i class="fas fa-plus"></i> Add</button>
+    <!-- ---- 2nd Cut-off ---- -->
+    <section class="cutoff-panel" aria-labelledby="secondCutoffTitle">
+        <div class="panel-header">
+            <div class="panel-title" id="secondCutoffTitle">2nd Cut-off</div>
+            <div class="panel-inputs">
+                <div class="input-group">
+                    <label for="secondSalary">
+                        Net Pay
+                        <span class="kpi-info" data-tip="Take-home pay after tax. The amount that actually enters your account.">i</span>
+                    </label>
+                    <input type="number" id="secondSalary" class="netpay-input" placeholder="0.00" step="0.01" onchange="updateSalary('second')">
                 </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-danger" onclick="resetBreakdown()">Reset Breakdown</button>
-                <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+                <div class="input-group">
+                    <label>Available</label>
+                    <span id="secondTotalAvailable" class="avail-val">&#8369;0.00</span>
+                </div>
             </div>
         </div>
-    </div>
 
-    <div id="editModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Edit Category</h3>
-                <span class="close" onclick="closeEditModal()">&times;</span>
+        <div class="category-table-wrap">
+            <table class="category-table">
+                <thead>
+                    <tr>
+                        <th class="col-h col-h-drag"></th>
+                        <th class="col-h col-h-name">Category</th>
+                        <th class="col-h col-h-type">Type</th>
+                        <th class="col-h col-h-budget">Budget</th>
+                        <th class="col-h col-h-spent">Spent</th>
+                        <th class="col-h col-h-actions">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="secondCutoffBody" class="category-tbody"></tbody>
+            </table>
+        </div>
+
+        <div class="panel-footer">
+            <div class="panel-totals">
+                <div class="total-block">
+                    <div class="total-block-label">Budgeted</div>
+                    <div class="total-block-val" id="secondTotalBudget">&#8369;0.00</div>
+                </div>
+                <div class="total-block">
+                    <div class="total-block-label">Spent</div>
+                    <div class="total-block-val" id="secondTotalSpent">&#8369;0.00</div>
+                </div>
+                <div class="total-block">
+                    <div class="total-block-label">Remaining</div>
+                    <div class="total-block-val remaining" id="secondSalaryRemaining">&#8369;0.00</div>
+                </div>
             </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label for="editCategory">Category</label>
-                    <input type="text" id="editCategory" placeholder="Category name">
-                </div>
-                <div class="form-group">
-                    <label for="editBudget">Budget</label>
-                    <input type="number" id="editBudget" placeholder="Budget amount" step="0.01">
-                </div>
-                <div class="form-group">
-                    <label for="editType">Type <span class="kpi-info" data-tip="Choose based on purpose: Essential for needs, Lifestyle for wants, Sinking Fund for planned future purchases, Savings/Investing for wealth goals, Debt for installment/loan payments.">i</span></label>
-                    <select id="editType">
-                        <option value="essential">Essential</option>
-                        <option value="lifestyle">Lifestyle</option>
-                        <option value="sinking">Sinking Fund</option>
-                        <option value="savings">Savings</option>
-                        <option value="investing">Investing</option>
-                        <option value="debt">Debt</option>
-                    </select>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-primary" onclick="saveEdit()">Save</button>
-                <button class="btn btn-secondary" onclick="closeEditModal()">Cancel</button>
+            <button class="add-row-btn" type="button" onclick="addRow('second')">
+                <i class="fas fa-plus" style="font-size:10px;"></i> Add Category
+            </button>
+        </div>
+    </section>
+
+</div>
+
+<footer class="app-version">Budget Tracker &bull; v4.5</footer>
+
+<!-- ================================================================
+     EXPENSE MODAL
+     ================================================================ -->
+<div id="expenseModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modalTitle">Expense Breakdown</h3>
+            <button class="close" type="button" onclick="closeModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="expenseList"></div>
+            <div class="add-expense-form">
+                <h4>Add / Edit Expense</h4>
+                <input type="text"   id="expenseDescription" placeholder="Description">
+                <input type="text"   id="expenseDate" class="expense-date-input" placeholder="Select date" autocomplete="off">
+                <input type="number" id="expenseAmount" placeholder="Amount" step="0.01">
+                <button type="button" onclick="addExpense()"><i class="fas fa-plus"></i> Add</button>
             </div>
         </div>
-    </div>
-
-    <div id="presetModal" class="modal">
-        <div class="modal-content preset-modal-content">
-            <div class="modal-header">
-                <h3>Manage Presets</h3>
-                <span class="close" onclick="closePresetModal()">&times;</span>
-            </div>
-            <div class="modal-body preset-modal-body">
-                <section class="preset-panel">
-                <div class="preset-top-row">
-                    <div class="form-group preset-select-row">
-                        <label for="presetSelect">Select Preset to Edit</label>
-                        <select id="presetSelect" onchange="loadPresetForEditing()">
-                            <option value="1">Preset 1</option>
-                            <option value="2">Preset 2</option>
-                            <option value="3">Preset 3</option>
-                            <option value="4">Preset 4</option>
-                            <option value="5">Preset 5</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="presetName">Preset Name</label>
-                        <input type="text" id="presetName" placeholder="Enter preset name">
-                    </div>
-
-                    <div class="form-group preset-netpay-row">
-                        <label for="presetAverageNetPay">Average Net Pay per-cutoff</label>
-                        <input type="number" id="presetAverageNetPay" placeholder="0.00" step="0.01" min="0">
-                    </div>
-                </div>
-                </section>
-
-                <section class="preset-panel">
-                <div class="preset-summary-grid">
-                    <div class="preset-summary-card">
-                        <h4>1st Cut-off Summary</h4>
-                        <canvas id="firstPresetPie" width="150" height="150"></canvas>
-                        <div id="firstPresetLegend" class="preset-legend"></div>
-                    </div>
-                    <div class="preset-summary-card">
-                        <h4>2nd Cut-off Summary</h4>
-                        <canvas id="secondPresetPie" width="150" height="150"></canvas>
-                        <div id="secondPresetLegend" class="preset-legend"></div>
-                    </div>
-                </div>
-                </section>
-
-                <section class="preset-panel">
-                <div class="preset-columns">
-                    <div class="preset-column">
-                        <div class="preset-column-head">
-                        <h4>1st Cut-off Categories</h4>
-                        <div class="preset-column-actions">
-                            <button class="btn btn-info" onclick="addPresetCategory('first')">+ Add Category</button>
-                            <button class="btn btn-secondary" onclick="mirrorFirstToSecondPreset()">Mirror to 2nd</button>
-                        </div>
-                        </div>
-                        <div id="firstPresetCategories" class="preset-category-list"></div>
-                    </div>
-                    <div class="preset-column">
-                        <div class="preset-column-head">
-                        <h4>2nd Cut-off Categories</h4>
-                        <div class="preset-column-actions">
-                        <button class="btn btn-info" onclick="addPresetCategory('second')">+ Add Category</button>
-                        </div>
-                        </div>
-                        <div id="secondPresetCategories" class="preset-category-list"></div>
-                    </div>
-                </div>
-                </section>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-success" onclick="savePreset()">Save Preset</button>
-                <button class="btn btn-warning" onclick="resetPresetToDefault()">Reset to Default</button>
-                <button class="btn btn-secondary" onclick="closePresetModal()">Cancel</button>
-            </div>
+        <div class="modal-footer">
+            <button class="btn btn-danger"    type="button" onclick="resetBreakdown()">Clear All</button>
+            <button class="btn btn-secondary" type="button" onclick="closeModal()">Close</button>
         </div>
     </div>
+</div>
 
-    <script src="https://cdn.jsdelivr.net/npm/litepicker/dist/bundle.js"></script>
-    <script src="script.js?v=4.3"></script>
+<!-- ================================================================
+     EDIT CATEGORY MODAL
+     ================================================================ -->
+<div id="editModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="editModalTitle">Edit Category</h3>
+            <button class="close" type="button" onclick="closeEditModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label for="editCategory">Category Name</label>
+                <input type="text" id="editCategory" placeholder="e.g. Groceries">
+            </div>
+            <div class="form-group">
+                <label for="editBudget">Budget Amount</label>
+                <input type="number" id="editBudget" placeholder="0.00" step="0.01">
+            </div>
+            <div class="form-group">
+                <label for="editType">
+                    Type
+                    <span class="kpi-info" data-tip="Essential: needs. Lifestyle: wants. Sinking Fund: planned future costs. Savings/Investing: wealth goals. Debt: loans/installments.">i</span>
+                </label>
+                <select id="editType">
+                    <option value="essential">Essential</option>
+                    <option value="lifestyle">Lifestyle</option>
+                    <option value="sinking">Sinking Fund</option>
+                    <option value="savings">Savings</option>
+                    <option value="investing">Investing</option>
+                    <option value="debt">Debt</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary"   type="button" onclick="saveEdit()">Save</button>
+            <button class="btn btn-secondary" type="button" onclick="closeEditModal()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/litepicker/dist/bundle.js"></script>
+<script src="script.js?v=4.5"></script>
 </body>
 </html>
-
-
-
-
-
-
-
 
 
 

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Presets - Budget Tracker</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="manage-presets.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+</head>
+<body class="page-preset-manager">
+    <header class="pm-topbar">
+        <div class="pm-topbar-left">
+            <h1>Preset Manager</h1>
+            <p>Edit and organize reusable budget templates.</p>
+        </div>
+        <div class="pm-topbar-actions">
+            <a class="btn btn-secondary" href="advisor-settings.html"><i class="fas fa-bullseye"></i> Targets</a>
+            <a class="btn btn-primary" href="index.html"><i class="fas fa-arrow-left"></i> Back to Tracker</a>
+        </div>
+    </header>
+
+    <main class="pm-layout">
+        <aside class="pm-sidebar">
+            <div class="pm-panel">
+                <h2>Preset Slots</h2>
+                <div id="slotList" class="pm-slot-list"></div>
+            </div>
+
+            <div class="pm-panel">
+                <h2>Quick Actions</h2>
+                <div class="pm-sidebar-actions">
+                    <button id="savePresetBtn" class="btn btn-primary" type="button"><i class="fas fa-save"></i> Save Preset</button>
+                    <button id="resetPresetBtn" class="btn btn-warning" type="button"><i class="fas fa-undo"></i> Reset Slot</button>
+                    <button id="reloadPresetBtn" class="btn btn-secondary" type="button"><i class="fas fa-sync"></i> Reload</button>
+                </div>
+                <p class="pm-note">All changes are saved to your browser local storage.</p>
+            </div>
+        </aside>
+
+        <section class="pm-content">
+            <div class="pm-panel">
+                <div class="pm-identity-grid">
+                    <div class="form-group">
+                        <label for="presetSlotLabel">Active Slot</label>
+                        <input id="presetSlotLabel" type="text" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label for="presetName">Preset Name</label>
+                        <input id="presetName" type="text" placeholder="Preset name">
+                    </div>
+                    <div class="form-group">
+                        <label for="presetAverageNetPay">Avg Net Pay / cut-off</label>
+                        <input id="presetAverageNetPay" type="number" placeholder="0.00" step="0.01" min="0">
+                    </div>
+                </div>
+            </div>
+
+            <div class="pm-main-grid">
+                <div class="pm-panel">
+                    <div class="pm-section-head">
+                        <h2>Categories</h2>
+                        <button id="mirrorBtn" class="btn btn-secondary" type="button"><i class="fas fa-clone"></i> Mirror 1st -> 2nd</button>
+                    </div>
+                    <div class="pm-columns">
+                        <div class="pm-column">
+                            <div class="pm-column-head">
+                                <h3>1st Cut-off</h3>
+                                <button id="addFirstBtn" class="btn btn-secondary" type="button">+ Add</button>
+                            </div>
+                            <div class="pm-rows-head">
+                                <span></span><span>Category</span><span>Budget</span><span>Type</span><span></span>
+                            </div>
+                            <div id="firstPresetCategories" class="pm-category-list"></div>
+                        </div>
+
+                        <div class="pm-column">
+                            <div class="pm-column-head">
+                                <h3>2nd Cut-off</h3>
+                                <button id="addSecondBtn" class="btn btn-secondary" type="button">+ Add</button>
+                            </div>
+                            <div class="pm-rows-head">
+                                <span></span><span>Category</span><span>Budget</span><span>Type</span><span></span>
+                            </div>
+                            <div id="secondPresetCategories" class="pm-category-list"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <aside class="pm-panel pm-charts-panel">
+                    <h2>Pie Charts</h2>
+                    <div class="pm-chart-card">
+                        <h3>1st Cut-off</h3>
+                        <canvas id="firstPresetPie" width="150" height="150"></canvas>
+                        <div id="firstPresetLegend" class="pm-legend"></div>
+                    </div>
+                    <div class="pm-chart-card">
+                        <h3>2nd Cut-off</h3>
+                        <canvas id="secondPresetPie" width="150" height="150"></canvas>
+                        <div id="secondPresetLegend" class="pm-legend"></div>
+                    </div>
+                </aside>
+            </div>
+        </section>
+    </main>
+
+    <script src="preset-manager.js"></script>
+</body>
+</html>
