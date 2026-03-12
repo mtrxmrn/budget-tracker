@@ -1349,6 +1349,15 @@ function saveData() {
             localStorage.setItem(storageKey, JSON.stringify(dataByMonth[month]));
         });
 
+        if (currentFilter) {
+            // When editing a filtered month, preserve all other saved months.
+            const storageKey = getStorageKey(currentFilter);
+            if (!dataByMonth[currentFilter]) {
+                localStorage.removeItem(storageKey);
+            }
+            return;
+        }
+
         // Remove stale month payloads so deleted months do not reappear on reload.
         getAllMonthStorageKeys().forEach(key => {
             const month = key.replace('budgetTracker_', '');

@@ -100,7 +100,7 @@ Expense item shape:
 
 ## Current Baseline
 
-- Version baseline: `4.5`
+- Version baseline: `4.6`
 - Expense date input defaults to UTC+8 date
 - Category edit modal manages category, budget, and type
 - Sidebar was removed from `index.html`; the main tracker now focuses on the two cutoff tables and top stats strip

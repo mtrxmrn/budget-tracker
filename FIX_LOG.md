@@ -4,6 +4,13 @@ Persistent record of bugs, root causes, and corrections. Read this before modify
 
 ## 2026-03-12
 
+### Filtered preset/month saves deleting other months
+
+- Problem: Loading presets or making edits while filtered to one month could make other saved months disappear.
+- Root cause: `saveData()` removed every `budgetTracker_YYYY-MM` key not present in the current in-memory dataset, but filtered views only load one month into memory.
+- Files changed: `script.js`, `index.html`, `AI_REFERENCE.md`
+- Final behavior: Saving while a month filter is active now updates or removes only that filtered month and preserves all other month payloads.
+
 ### Data persistence and restore hardening
 
 - Problem: Deleted month data could reappear after reload.
